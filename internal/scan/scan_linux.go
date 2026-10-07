@@ -1,0 +1,221 @@
+//go:build linux
+
+package scan
+
+import (
+	"cmp"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/user"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// New returns the scanner for the current platform.
+func New() Scanner {
+	return &procScanner{
+		root:       "/proc",
+		order:      binary.NativeEndian,
+		lookupUser: cachedUserLookup(),
+	}
+}
+
+// procScanner discovers listeners by reading procfs.
+type procScanner struct {
+	root       string
+	order      binary.ByteOrder
+	lookupUser func(uid int) string
+}
+
+// procInfo is what we know about a process. Fields we could not read are left zero.
+type procInfo struct {
+	name  string
+	cwd   string
+	start time.Time
+}
+
+func (s *procScanner) Scan() ([]Listener, error) {
+	sockets, err := s.readSockets()
+	if err != nil {
+		return nil, err
+	}
+	if len(sockets) == 0 {
+		return nil, nil
+	}
+
+	wanted := make(map[uint64]bool, len(sockets))
+	for _, sock := range sockets {
+		wanted[sock.Inode] = true
+	}
+	owners := s.socketOwners(wanted)
+	boot, _ := s.bootTime() // without it we just omit start times
+
+	procs := make(map[int]procInfo)
+	var out []Listener
+	for _, sock := range sockets {
+		base := Listener{
+			Port:     sock.Port,
+			Protocol: sock.Protocol,
+			Address:  sock.Address,
+			User:     s.lookupUser(sock.UID),
+		}
+		pids := owners[sock.Inode]
+		if len(pids) == 0 {
+			out = append(out, base) // owner not visible to us (permissions)
+			continue
+		}
+		for _, pid := range pids {
+			info, ok := procs[pid]
+			if !ok {
+				info = s.readProc(pid, boot)
+				procs[pid] = info
+			}
+			l := base
+			l.PID = pid
+			l.ProcessName = info.name
+			l.Cwd = info.cwd
+			l.StartTime = info.start
+			out = append(out, l)
+		}
+	}
+	sortListeners(out)
+	return out, nil
+}
+
+// readSockets returns listening sockets from /proc/net/tcp and tcp6. The tcp6
+// table is optional because it is absent when IPv6 is disabled.
+func (s *procScanner) readSockets() ([]socketEntry, error) {
+	var all []socketEntry
+	for _, t := range []struct {
+		proto    string
+		optional bool
+	}{{"tcp", false}, {"tcp6", true}} {
+		path := filepath.Join(s.root, "net", t.proto)
+		f, err := os.Open(path)
+		if err != nil {
+			if t.optional && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("reading socket table: %w", err)
+		}
+		entries, err := parseProcNet(f, t.proto, s.order)
+		f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", path, err)
+		}
+		all = append(all, entries...)
+	}
+	return all, nil
+}
+
+// socketOwners maps each wanted socket inode to the PIDs holding it open.
+// Processes whose fd directory we cannot read (other users' processes when
+// not root, or processes that exited mid-scan) are silently skipped.
+func (s *procScanner) socketOwners(wanted map[uint64]bool) map[uint64][]int {
+	owners := make(map[uint64][]int)
+	for _, pid := range s.pids() {
+		fdDir := filepath.Join(s.root, strconv.Itoa(pid), "fd")
+		fds, err := readDirNames(fdDir)
+		if err != nil {
+			continue
+		}
+		for _, fd := range fds {
+			target, err := os.Readlink(filepath.Join(fdDir, fd))
+			if err != nil {
+				continue
+			}
+			inode, ok := parseSocketLink(target)
+			if !ok || !wanted[inode] || slices.Contains(owners[inode], pid) {
+				continue
+			}
+			owners[inode] = append(owners[inode], pid)
+		}
+	}
+	return owners
+}
+
+// pids lists the numeric entries of the proc root.
+func (s *procScanner) pids() []int {
+	names, err := readDirNames(s.root)
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, name := range names {
+		if pid, err := strconv.Atoi(name); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func (s *procScanner) readProc(pid int, boot time.Time) procInfo {
+	dir := filepath.Join(s.root, strconv.Itoa(pid))
+	var info procInfo
+	if b, err := os.ReadFile(filepath.Join(dir, "comm")); err == nil {
+		info.name = strings.TrimSpace(string(b))
+	}
+	if cwd, err := os.Readlink(filepath.Join(dir, "cwd")); err == nil {
+		info.cwd = cwd
+	}
+	if !boot.IsZero() {
+		if b, err := os.ReadFile(filepath.Join(dir, "stat")); err == nil {
+			if ticks, err := parseStatStartTicks(string(b)); err == nil {
+				info.start = startTimeFromTicks(boot, ticks)
+			}
+		}
+	}
+	return info
+}
+
+func (s *procScanner) bootTime() (time.Time, error) {
+	f, err := os.Open(filepath.Join(s.root, "stat"))
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer f.Close()
+	return parseBootTime(f)
+}
+
+// readDirNames lists a directory without sorting or stat-ing its entries.
+func readDirNames(dir string) ([]string, error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.Readdirnames(-1)
+}
+
+// cachedUserLookup resolves uids to user names, falling back to the numeric
+// uid when the user is unknown.
+func cachedUserLookup() func(int) string {
+	cache := make(map[int]string)
+	return func(uid int) string {
+		if name, ok := cache[uid]; ok {
+			return name
+		}
+		name := strconv.Itoa(uid)
+		if u, err := user.LookupId(name); err == nil {
+			name = u.Username
+		}
+		cache[uid] = name
+		return name
+	}
+}
+
+func sortListeners(ls []Listener) {
+	slices.SortFunc(ls, func(a, b Listener) int {
+		return cmp.Or(
+			cmp.Compare(a.Port, b.Port),
+			a.Address.Compare(b.Address),
+			cmp.Compare(a.PID, b.PID),
+		)
+	})
+}

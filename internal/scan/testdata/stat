@@ -1,0 +1,5 @@
+cpu  1 2 3 4 5 6 7 0 0 0
+intr 12345
+ctxt 6789
+btime 1759831200
+processes 4242
