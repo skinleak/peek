@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"peek/internal/kill"
-	"peek/internal/scan"
-	"peek/internal/ui"
+	"github.com/aaron03EM/peek/internal/kill"
+	"github.com/aaron03EM/peek/internal/scan"
+	"github.com/aaron03EM/peek/internal/ui"
 )
 
 const (

@@ -1,4 +1,4 @@
-module peek
+module github.com/aaron03EM/peek
 
 go 1.26.4
 

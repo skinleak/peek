@@ -1,0 +1,37 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: The command you ran, what you expected, and what happened instead. Paste the output if you can.
+      placeholder: |
+        $ peek 3000
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can we reproduce it?
+      description: For example, how the listening process was started.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Output of `uname -a` on Linux or macOS.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: peek version or commit
+      description: How you installed peek, and `go version` if you built it yourself.
+  - type: checkboxes
+    id: sudo
+    attributes:
+      label: Permissions
+      options:
+        - label: The problem also happens with `sudo peek`

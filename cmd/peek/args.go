@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"peek/internal/scan"
+	"github.com/aaron03EM/peek/internal/scan"
 )
 
 const usage = `peek - see what's listening on your ports, and free them up

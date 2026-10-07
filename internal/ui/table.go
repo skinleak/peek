@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/term"
 
-	"peek/internal/scan"
+	"github.com/aaron03EM/peek/internal/scan"
 )
 
 const (

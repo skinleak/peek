@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"peek/internal/scan"
+	"github.com/aaron03EM/peek/internal/scan"
 )
 
 func TestTildify(t *testing.T) {
