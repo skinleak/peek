@@ -20,19 +20,21 @@ Flags:
   -y, --yes     kill: don't ask for confirmation
   -f, --force   kill: send SIGKILL instead of SIGTERM
   -h, --help    show this help
+  --version     print the version
 
 Exit codes: 0 success, 1 nothing listening or operation failed, 2 usage error.
 `
 
 // config is the parsed command line.
 type config struct {
-	kill   bool
-	ranges []scan.PortRange
-	json   bool
-	watch  bool
-	force  bool
-	yes    bool
-	help   bool
+	kill    bool
+	ranges  []scan.PortRange
+	json    bool
+	watch   bool
+	force   bool
+	yes     bool
+	help    bool
+	version bool
 }
 
 // parseArgs parses the command line (without the program name). Flags may
@@ -53,7 +55,7 @@ func parseArgs(args []string) (config, error) {
 			return config{}, err
 		}
 	}
-	if cfg.help {
+	if cfg.help || cfg.version {
 		return cfg, nil
 	}
 
@@ -86,6 +88,8 @@ func (c *config) setFlag(arg string) error {
 		c.yes = true
 	case "-h", "--help":
 		c.help = true
+	case "--version":
+		c.version = true
 	default:
 		return fmt.Errorf("unknown flag %q", arg)
 	}

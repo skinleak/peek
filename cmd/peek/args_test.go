@@ -24,6 +24,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"kill", "--", "3000"}, config{kill: true, ranges: []scan.PortRange{pr(3000, 3000)}}},
 		{[]string{"-h"}, config{help: true}},
 		{[]string{"kill", "--help"}, config{help: true}},
+		{[]string{"--version"}, config{version: true}},
 	}
 	for _, tt := range tests {
 		got, err := parseArgs(tt.args)
@@ -79,7 +80,7 @@ func TestDescribePorts(t *testing.T) {
 
 func equalConfig(a, b config) bool {
 	return a.kill == b.kill && a.json == b.json && a.watch == b.watch &&
-		a.force == b.force && a.yes == b.yes && a.help == b.help &&
+		a.force == b.force && a.yes == b.yes && a.help == b.help && a.version == b.version &&
 		slices.Equal(a.ranges, b.ranges)
 }
 

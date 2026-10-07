@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/aaron03EM/peek/internal/kill"
@@ -34,6 +36,10 @@ func run(args []string) int {
 	}
 	if cfg.help {
 		fmt.Print(usage)
+		return exitOK
+	}
+	if cfg.version {
+		fmt.Println("peek", versionString())
 		return exitOK
 	}
 
@@ -108,6 +114,21 @@ func runKill(cfg config, ls []scan.Listener) int {
 		return exitNotFound
 	}
 	return exitOK
+}
+
+// version is set at release build time with -ldflags "-X main.version=...".
+var version string
+
+// versionString reports the release version, or the module version when
+// installed with `go install ...@vX.Y.Z`.
+func versionString() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return strings.TrimPrefix(info.Main.Version, "v")
+	}
+	return "dev"
 }
 
 func nothingListening(ranges []scan.PortRange) string {

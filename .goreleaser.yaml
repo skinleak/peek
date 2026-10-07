@@ -1,0 +1,57 @@
+# Release configuration: https://goreleaser.com
+# Run locally with: goreleaser release --snapshot --clean
+version: 2
+
+project_name: peek
+
+builds:
+  - id: peek
+    main: ./cmd/peek
+    binary: peek
+    env:
+      - CGO_ENABLED=0
+    # Windows is left out until it has a scanner.
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^ci"
+      - "^Merge"
+
+homebrew_casks:
+  - name: peek
+    repository:
+      owner: aaron03EM
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/aaron03EM/peek
+    description: See what's listening on your ports, and free them up
+    license: MIT
+    hooks:
+      post:
+        # The binary isn't notarized; drop the quarantine flag so macOS
+        # doesn't block it on first run.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/peek"]
+          end
+
+release:
+  footer: |
+    **Install:** `brew install aaron03EM/tap/peek`, or `curl -fsSL https://raw.githubusercontent.com/aaron03EM/peek/main/install.sh | sh`
