@@ -47,12 +47,18 @@ internal/scan/        Scanner interface, Listener type and per-OS implementation
   scan.go             shared types and port-range parsing
   procfs.go           pure /proc parsers (tested on every OS)
   scan_linux.go       Linux scanner
-  scan_darwin.go      stub, not implemented yet
+  libproc.go          pure parsers for macOS libproc structs (tested on every OS)
+  scan_darwin.go      macOS scanner
+  libproc_darwin.*    cgo-free libproc calls (Go wrappers + assembly trampolines)
   scan_windows.go     stub, not implemented yet
+  live_test.go        checks the real scanner finds a listener this process opens
   testdata/           fixture files for the /proc parsers
+internal/docker/      names containers that publish ports, stops them via the API
 internal/ui/          table and JSON rendering
 internal/kill/        signalling, confirmation and waiting for exit
 docs/demo.svg         terminal screenshot used in the README
+install.sh            installer used by `curl ... | sh`
+.goreleaser.yaml      release builds, archives and the Homebrew cask
 ```
 
 ## Guidelines
@@ -60,9 +66,21 @@ docs/demo.svg         terminal screenshot used in the README
 - **Keep it small.** `peek` aims for instant startup and a tiny binary. Prefer the standard library. The only third-party dependency is Lip Gloss (with termenv). Please open an issue to discuss before adding a new dependency.
 - **Keep platform code behind `scan.Scanner`.** The UI and CLI must not know which OS they run on. A new platform is a new `scan_<os>.go` file with a build tag.
 - **No panics for expected failures.** Permission errors, processes exiting mid-scan and missing files are normal. Skip them or mark fields as unknown, and return clear error messages for real failures.
-- **Test with fixtures, not the live system.** Parsers take an `io.Reader` or a configurable proc root so tests can use files from `testdata/` or a fake `/proc` tree built in a temp directory.
+- **Test with fixtures, not the live system.** Parsers take an `io.Reader`, a byte buffer or a configurable proc root so tests can use files from `testdata/` or a fake `/proc` tree built in a temp directory. The one exception is `live_test.go`, which checks each scanner end to end.
+- **No cgo.** Releases are static binaries built with `CGO_ENABLED=0`. On macOS, system libraries are called through trampolines instead (see `libproc_darwin.s`).
 - **Respect the exit codes:** 0 success, 1 nothing listening or failure, 2 usage error.
 - **Match the existing style:** `gofmt`, small functions, comments that explain *why*.
+
+## Releases
+
+Maintainers release by pushing a tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release workflow runs the tests, then GoReleaser builds the binaries, creates the GitHub release and updates the Homebrew tap. To try the release build locally: `goreleaser release --snapshot --clean`.
 
 ## Pull requests
 

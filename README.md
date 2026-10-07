@@ -18,27 +18,32 @@
 - **One command, no flags to remember:** `peek` lists everything that's listening.
 - **Answers "who's on port 3000?"** with the process, PID, bind address, working directory and uptime.
 - **Frees a port safely:** `peek kill 3000` asks first, sends SIGTERM and checks that the process actually exited.
+- **Knows about Docker:** ports published by containers show the container name, and `peek kill` stops the container instead of breaking Docker's proxy.
 - **Shows exposure at a glance:** binds reachable from other machines (`0.0.0.0`, `::`) are highlighted differently from local-only ones (`127.0.0.1`, `::1`).
 - **Scriptable:** `--json` output and meaningful exit codes.
-- **Tiny and instant:** a single static binary with no config files and no runtime dependencies.
+- **Tiny and instant:** a single static binary for Linux and macOS, with no config files and no runtime dependencies.
 
 ## Install
 
-With Go 1.26 or newer:
+**Homebrew** (macOS and Linux):
+
+```sh
+brew install aaron03EM/tap/peek
+```
+
+**Install script** (macOS and Linux). It downloads the latest release, verifies its checksum and installs to `/usr/local/bin`, or `~/.local/bin` if that isn't writable:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/aaron03EM/peek/main/install.sh | sh
+```
+
+**Go** (1.26 or newer):
 
 ```sh
 go install github.com/aaron03EM/peek/cmd/peek@latest
 ```
 
-This puts `peek` in `$(go env GOPATH)/bin`. Make sure that directory is on your `PATH`.
-
-Or build from source:
-
-```sh
-git clone https://github.com/aaron03EM/peek.git
-cd peek
-go build -o peek ./cmd/peek
-```
+Or download a binary from the [releases page](https://github.com/aaron03EM/peek/releases).
 
 ## Usage
 
@@ -53,6 +58,7 @@ peek kill 3000 --yes    # don't ask
 peek kill 3000 --force  # send SIGKILL instead of SIGTERM
 
 peek --json             # machine-readable output
+peek --version
 peek --help
 ```
 
@@ -73,9 +79,25 @@ A socket shared by several processes (for example a pre-forking web server) show
 
 Colors adapt to light and dark terminals. They're switched off automatically when output isn't a terminal or when [`NO_COLOR`](https://no-color.org) is set.
 
+### Docker containers
+
+When a port is published by a Docker container, `peek` shows the container name instead of `docker-proxy`:
+
+```
+ PORT  PROCESS             PID  ADDRESS  CWD  UPTIME
+ 5432  webapp-db (docker)    -  0.0.0.0  -    -
+```
+
+`peek kill 5432` then stops the container through the Docker API (`docker stop`, or `docker kill` with `--force`) rather than killing the proxy process, which would free the port but leave Docker in a broken state.
+
+This needs access to the Docker socket (on Linux, being in the `docker` group). It works with `/var/run/docker.sock`, Docker Desktop, rootless Docker and `DOCKER_HOST=unix://...`. If Docker isn't available, `peek` works as usual.
+
 ### Seeing other users' processes
 
-Without root, Linux only lets you inspect your own processes. Ports owned by other users still show up, but with the process and PID as `-`. Run `sudo peek` to see everything.
+Operating systems only let you inspect your own processes without root. Run `sudo peek` to see everything.
+
+- **Linux:** ports owned by other users still show up, but with the process and PID as `-`.
+- **macOS:** ports owned by other users don't show up at all, the same as `lsof`.
 
 ### JSON
 
@@ -95,7 +117,7 @@ $ peek 3000 --json
 ]
 ```
 
-Fields that couldn't be read (such as `pid` for another user's process) are left out. When nothing matches, the output is `[]`.
+Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
 
 ### Exit codes
 
@@ -115,19 +137,22 @@ peek 5432 >/dev/null || echo "start the database first"
 
 | OS      | Status |
 |---------|--------|
-| Linux   | Supported (reads `/proc`) |
-| macOS   | Planned |
+| Linux   | Supported (amd64, arm64) |
+| macOS   | Supported (Apple Silicon and Intel) |
 | Windows | Planned |
 
 ## How it works
 
-On Linux, `peek` reads `/proc/net/tcp` and `/proc/net/tcp6` for sockets in the LISTEN state. It then maps each socket's inode to processes by scanning `/proc/<pid>/fd`, and reads each process's name, working directory and start time from `/proc/<pid>`. No external tools like `lsof` or `ss` are needed.
+`peek` doesn't shell out to `lsof`, `ss` or `netstat`; it asks the kernel directly.
+
+- **Linux:** it reads `/proc/net/tcp` and `/proc/net/tcp6` for sockets in the LISTEN state, maps each socket's inode to processes by scanning `/proc/<pid>/fd`, and reads each process's name, working directory and start time from `/proc/<pid>`.
+- **macOS:** it uses libproc (`proc_pidinfo` and `proc_pidfdinfo`), the same interface `lsof` uses. It calls libproc without cgo, so the binary stays static.
 
 ## Roadmap
 
 - `peek --watch`: a live-refreshing view
-- macOS and Windows support
-- Prebuilt release binaries
+- Windows support
+- UDP sockets
 
 ## Contributing
 

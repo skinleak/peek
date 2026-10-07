@@ -39,7 +39,7 @@ func TestConfirm(t *testing.T) {
 	}
 	for input, want := range tests {
 		var out bytes.Buffer
-		got, err := confirm(strings.NewReader(input), &out, one, "SIGTERM")
+		got, err := confirm(strings.NewReader(input), &out, []string{one[0].action(false)})
 		if err != nil {
 			t.Fatalf("confirm(%q): %v", input, err)
 		}
@@ -49,5 +49,61 @@ func TestConfirm(t *testing.T) {
 		if !strings.Contains(out.String(), "Send SIGTERM to node (PID 1234) on port 3000? [y/N]") {
 			t.Errorf("unexpected prompt %q", out.String())
 		}
+	}
+}
+
+func TestTargetsGroupsContainers(t *testing.T) {
+	ls := []scan.Listener{
+		// docker-proxy for 0.0.0.0 and :: are separate processes for one container
+		{Port: 5432, PID: 900, ProcessName: "docker-proxy", Container: "db", ContainerID: "abc"},
+		{Port: 5432, PID: 901, ProcessName: "docker-proxy", Container: "db", ContainerID: "abc"},
+		// hidden owner, but Docker told us which container it is
+		{Port: 6379, Container: "cache", ContainerID: "def"},
+	}
+	targets, hidden := Targets(ls)
+	if len(hidden) != 0 {
+		t.Errorf("hidden = %+v, want none", hidden)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("got %d targets, want 2: %+v", len(targets), targets)
+	}
+	if got := targets[0].action(false); got != "Stop Docker container db on port 5432" {
+		t.Errorf("action = %q", got)
+	}
+	if got := targets[1].action(true); got != "Kill Docker container cache on port 6379" {
+		t.Errorf("forced action = %q", got)
+	}
+}
+
+func TestRunStopsContainer(t *testing.T) {
+	target := Target{Name: "db", ContainerID: "abc", Ports: []uint16{5432}}
+	var gotID string
+	var gotForce bool
+	var out bytes.Buffer
+	err := Run([]Target{target}, Options{
+		Yes:   true,
+		Force: true,
+		Out:   &out,
+		StopContainer: func(id string, force bool) error {
+			gotID, gotForce = id, force
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotID != "abc" || !gotForce {
+		t.Errorf("StopContainer(%q, %v), want (abc, true)", gotID, gotForce)
+	}
+	if !strings.Contains(out.String(), "Stopped Docker container db on port 5432") {
+		t.Errorf("unexpected output %q", out.String())
+	}
+}
+
+func TestRunContainerWithoutDocker(t *testing.T) {
+	target := Target{Name: "db", ContainerID: "abc", Ports: []uint16{5432}}
+	err := Run([]Target{target}, Options{Yes: true, Out: &bytes.Buffer{}})
+	if err == nil || !strings.Contains(err.Error(), "docker stop db") {
+		t.Fatalf("got %v, want hint to run docker stop", err)
 	}
 }

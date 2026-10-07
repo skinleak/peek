@@ -18,12 +18,14 @@ import (
 // ErrAborted is returned when the user declines the confirmation prompt.
 var ErrAborted = errors.New("aborted")
 
-// Target is a process to be signalled, with the ports it listens on.
+// Target is a process to be signalled, or a Docker container to be stopped,
+// with the ports it listens on.
 type Target struct {
-	PID   int
-	Name  string
-	User  string
-	Ports []uint16
+	PID         int
+	Name        string // process or container name
+	User        string
+	ContainerID string // set when the ports are published by a container
+	Ports       []uint16
 }
 
 func (t Target) String() string {
@@ -35,23 +37,49 @@ func (t Target) String() string {
 	if len(ports) > 1 {
 		noun = "ports"
 	}
+	if t.ContainerID != "" {
+		return fmt.Sprintf("Docker container %s on %s %s", t.Name, noun, strings.Join(ports, ", "))
+	}
 	return fmt.Sprintf("%s (PID %d) on %s %s", t.Name, t.PID, noun, strings.Join(ports, ", "))
 }
 
-// Targets groups listeners by owning process. Ports whose owner could not be
-// determined are returned separately in hidden.
+// action describes what Run will do to t.
+func (t Target) action(force bool) string {
+	switch {
+	case t.ContainerID != "" && force:
+		return "Kill " + t.String()
+	case t.ContainerID != "":
+		return "Stop " + t.String()
+	case force:
+		return "Send SIGKILL to " + t.String()
+	default:
+		return "Send SIGTERM to " + t.String()
+	}
+}
+
+// Targets groups listeners by owning container or process. Ports whose owner
+// could not be determined are returned separately in hidden.
 func Targets(ls []scan.Listener) (targets []Target, hidden []scan.Listener) {
-	index := make(map[int]int)
+	index := make(map[string]int)
 	for _, l := range ls {
-		if l.PID == 0 {
+		var key string
+		var t Target
+		switch {
+		case l.ContainerID != "":
+			key = "container:" + l.ContainerID
+			t = Target{Name: l.Container, ContainerID: l.ContainerID, User: l.User}
+		case l.PID != 0:
+			key = fmt.Sprint("pid:", l.PID)
+			t = Target{PID: l.PID, Name: l.ProcessName, User: l.User}
+		default:
 			hidden = append(hidden, l)
 			continue
 		}
-		i, ok := index[l.PID]
+		i, ok := index[key]
 		if !ok {
 			i = len(targets)
-			index[l.PID] = i
-			targets = append(targets, Target{PID: l.PID, Name: l.ProcessName, User: l.User})
+			index[key] = i
+			targets = append(targets, t)
 		}
 		if !slices.Contains(targets[i].Ports, l.Port) {
 			targets[i].Ports = append(targets[i].Ports, l.Port)
@@ -62,29 +90,30 @@ func Targets(ls []scan.Listener) (targets []Target, hidden []scan.Listener) {
 
 // Options configure Run.
 type Options struct {
-	Force bool          // send SIGKILL instead of SIGTERM
+	Force bool          // SIGKILL / docker kill instead of SIGTERM / docker stop
 	Yes   bool          // skip the confirmation prompt
 	Wait  time.Duration // how long to wait for processes to exit
 	In    io.Reader     // where confirmation answers are read from
 	Out   io.Writer     // where prompts and progress are written
+
+	// StopContainer stops a Docker container; nil if Docker is unavailable.
+	StopContainer func(id string, force bool) error
 }
 
-// Run confirms with the user and then signals every target, waiting up to
-// o.Wait for each to exit. It returns an error if any target could not be
-// signalled or is still running afterwards.
+// Run confirms with the user and then stops every target, waiting up to
+// o.Wait for each process to exit. It returns an error if any target could
+// not be stopped.
 func Run(targets []Target, o Options) error {
-	for _, t := range targets {
-		if t.PID == 1 {
+	actions := make([]string, len(targets))
+	for i, t := range targets {
+		if t.PID == 1 && t.ContainerID == "" {
 			return fmt.Errorf("refusing to signal PID 1 (%s), which holds port %d; stop the service or socket unit instead", t.Name, t.Ports[0])
 		}
-	}
-	sig, sigName := syscall.SIGTERM, "SIGTERM"
-	if o.Force {
-		sig, sigName = syscall.SIGKILL, "SIGKILL"
+		actions[i] = t.action(o.Force)
 	}
 
 	if !o.Yes {
-		ok, err := confirm(o.In, o.Out, targets, sigName)
+		ok, err := confirm(o.In, o.Out, actions)
 		if err != nil {
 			return err
 		}
@@ -93,9 +122,19 @@ func Run(targets []Target, o Options) error {
 		}
 	}
 
+	sig := syscall.SIGTERM
+	if o.Force {
+		sig = syscall.SIGKILL
+	}
 	var failed []error
 	for _, t := range targets {
-		if err := stop(t, sig, o); err != nil {
+		var err error
+		if t.ContainerID != "" {
+			err = stopContainer(t, o)
+		} else {
+			err = stop(t, sig, o)
+		}
+		if err != nil {
 			failed = append(failed, err)
 			continue
 		}
@@ -104,13 +143,13 @@ func Run(targets []Target, o Options) error {
 	return errors.Join(failed...)
 }
 
-func confirm(in io.Reader, out io.Writer, targets []Target, sigName string) (bool, error) {
-	if len(targets) == 1 {
-		fmt.Fprintf(out, "Send %s to %s? [y/N] ", sigName, targets[0])
+func confirm(in io.Reader, out io.Writer, actions []string) (bool, error) {
+	if len(actions) == 1 {
+		fmt.Fprintf(out, "%s? [y/N] ", actions[0])
 	} else {
-		fmt.Fprintf(out, "Send %s to %d processes:\n", sigName, len(targets))
-		for _, t := range targets {
-			fmt.Fprintf(out, "  %s\n", t)
+		fmt.Fprintln(out, "peek will:")
+		for _, a := range actions {
+			fmt.Fprintf(out, "  %s\n", a)
 		}
 		fmt.Fprint(out, "Continue? [y/N] ")
 	}
@@ -123,6 +162,16 @@ func confirm(in io.Reader, out io.Writer, targets []Target, sigName string) (boo
 	}
 	answer := strings.ToLower(strings.TrimSpace(line))
 	return answer == "y" || answer == "yes", nil
+}
+
+func stopContainer(t Target, o Options) error {
+	if o.StopContainer == nil {
+		return fmt.Errorf("can't reach Docker to stop %s; try 'docker stop %s'", t, t.Name)
+	}
+	if err := o.StopContainer(t.ContainerID, o.Force); err != nil {
+		return fmt.Errorf("stopping %s: %w", t, err)
+	}
+	return nil
 }
 
 func stop(t Target, sig syscall.Signal, o Options) error {

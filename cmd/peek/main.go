@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aaron03EM/peek/internal/docker"
 	"github.com/aaron03EM/peek/internal/kill"
 	"github.com/aaron03EM/peek/internal/scan"
 	"github.com/aaron03EM/peek/internal/ui"
@@ -21,8 +23,12 @@ const (
 	exitUsage    = 2
 )
 
-// killWait is how long to wait for a signalled process to exit.
-const killWait = 3 * time.Second
+const (
+	// killWait is how long to wait for a signalled process to exit.
+	killWait = 3 * time.Second
+	// containerStopTimeout covers Docker's default 10s stop grace period.
+	containerStopTimeout = 30 * time.Second
+)
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -49,9 +55,10 @@ func run(args []string) int {
 		return exitNotFound
 	}
 	matched := scan.Filter(all, cfg.ranges)
+	dockerClient := docker.Enrich(matched)
 
 	if cfg.kill {
-		return runKill(cfg, matched)
+		return runKill(cfg, matched, dockerClient)
 	}
 	return runList(cfg, matched)
 }
@@ -84,7 +91,7 @@ func runList(cfg config, ls []scan.Listener) int {
 	return code
 }
 
-func runKill(cfg config, ls []scan.Listener) int {
+func runKill(cfg config, ls []scan.Listener, dc *docker.Client) int {
 	if len(ls) == 0 {
 		fmt.Println(nothingListening(cfg.ranges))
 		return exitNotFound
@@ -98,13 +105,21 @@ func runKill(cfg config, ls []scan.Listener) int {
 		return exitNotFound
 	}
 
-	err := kill.Run(targets, kill.Options{
+	opts := kill.Options{
 		Force: cfg.force,
 		Yes:   cfg.yes,
 		Wait:  killWait,
 		In:    os.Stdin,
 		Out:   os.Stdout,
-	})
+	}
+	if dc != nil {
+		opts.StopContainer = func(id string, force bool) error {
+			ctx, cancel := context.WithTimeout(context.Background(), containerStopTimeout)
+			defer cancel()
+			return dc.Stop(ctx, id, force)
+		}
+	}
+	err := kill.Run(targets, opts)
 	switch {
 	case errors.Is(err, kill.ErrAborted):
 		fmt.Println("Aborted.")
@@ -140,7 +155,7 @@ func nothingListening(ranges []scan.PortRange) string {
 
 func hasHiddenOwners(ls []scan.Listener) bool {
 	for _, l := range ls {
-		if l.PID == 0 {
+		if l.PID == 0 && l.Container == "" {
 			return true
 		}
 	}

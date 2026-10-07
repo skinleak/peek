@@ -27,6 +27,8 @@ type Listener struct {
 	Cwd         string     `json:"cwd,omitzero"`
 	StartTime   time.Time  `json:"start_time,omitzero"`
 	User        string     `json:"user,omitzero"`
+	Container   string     `json:"container,omitzero"`    // Docker container publishing this port
+	ContainerID string     `json:"container_id,omitzero"` // its full ID
 }
 
 // Exposed reports whether the socket accepts connections from other hosts,

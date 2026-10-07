@@ -50,8 +50,11 @@ func terminalWidth(f *os.File) int {
 type cell struct {
 	text       string
 	style      lipgloss.Style
+	suffix     string // rendered dimmed after text
 	alignRight bool
 }
+
+func (c cell) width() int { return lipgloss.Width(c.text + c.suffix) }
 
 // Column indexes, in display order.
 const (
@@ -85,7 +88,7 @@ func Table(w io.Writer, ls []scan.Listener, o Options) error {
 
 	var b strings.Builder
 	for _, row := range rows {
-		writeRow(&b, row, widths)
+		writeRow(&b, row, widths, st.dim)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
@@ -100,6 +103,9 @@ func listenerRow(l scan.Listener, st styles, o Options) [numCols]cell {
 	if l.PID == 0 {
 		row[colProcess] = cell{text: unknown, style: st.dim}
 		row[colPID] = cell{text: unknown, style: st.dim, alignRight: true}
+	}
+	if l.Container != "" {
+		row[colProcess] = cell{text: l.Container, style: st.plain, suffix: " (docker)"}
 	}
 
 	addrStyle := st.local
@@ -124,7 +130,7 @@ func columnWidths(rows [][numCols]cell) [numCols]int {
 	var widths [numCols]int
 	for _, row := range rows {
 		for i, c := range row {
-			widths[i] = max(widths[i], lipgloss.Width(c.text))
+			widths[i] = max(widths[i], c.width())
 		}
 	}
 	return widths
@@ -151,10 +157,13 @@ func fitCwd(rows [][numCols]cell, widths *[numCols]int, maxWidth int) {
 	}
 }
 
-func writeRow(b *strings.Builder, row [numCols]cell, widths [numCols]int) {
+func writeRow(b *strings.Builder, row [numCols]cell, widths [numCols]int, dim lipgloss.Style) {
 	for i, c := range row {
-		pad := strings.Repeat(" ", widths[i]-lipgloss.Width(c.text))
+		pad := strings.Repeat(" ", widths[i]-c.width())
 		styled := c.style.Render(c.text)
+		if c.suffix != "" {
+			styled += dim.Render(c.suffix)
+		}
 		switch {
 		case c.alignRight:
 			b.WriteString(pad + styled)
