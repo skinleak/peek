@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaron03EM/peek/internal/scan"
+	"github.com/skinleak/peek/internal/scan"
 )
 
 // lookupTimeout bounds how long listing containers may delay peek's output.

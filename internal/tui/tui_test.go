@@ -9,9 +9,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/aaron03EM/peek/internal/kill"
-	"github.com/aaron03EM/peek/internal/scan"
-	"github.com/aaron03EM/peek/internal/ui"
+	"github.com/skinleak/peek/internal/kill"
+	"github.com/skinleak/peek/internal/scan"
+	"github.com/skinleak/peek/internal/ui"
 )
 
 var start = time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)

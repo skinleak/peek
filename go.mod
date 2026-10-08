@@ -1,4 +1,4 @@
-module github.com/aaron03EM/peek
+module github.com/skinleak/peek
 
 go 1.26.4
 

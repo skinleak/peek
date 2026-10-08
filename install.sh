@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install peek from GitHub releases.
 #
-#   curl -fsSL https://raw.githubusercontent.com/aaron03EM/peek/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/skinleak/peek/main/install.sh | sh
 #
 # Environment variables:
 #   PEEK_VERSION       version to install, e.g. 0.1.0 (default: latest)
@@ -9,7 +9,7 @@
 #                      writable, otherwise ~/.local/bin)
 set -eu
 
-repo="aaron03EM/peek"
+repo="skinleak/peek"
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'peek install: %s\n' "$*" >&2; exit 1; }

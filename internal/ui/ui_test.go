@@ -9,7 +9,7 @@ import (
 
 	"github.com/muesli/termenv"
 
-	"github.com/aaron03EM/peek/internal/scan"
+	"github.com/skinleak/peek/internal/scan"
 )
 
 func TestTildify(t *testing.T) {

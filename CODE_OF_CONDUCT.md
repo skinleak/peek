@@ -28,7 +28,7 @@ This Code of Conduct applies in all project spaces, such as issues, pull request
 
 ## Enforcement
 
-Instances of abusive, harassing or otherwise unacceptable behavior can be reported to the maintainer, [@aaron03EM](https://github.com/aaron03EM), through GitHub. All reports will be reviewed and investigated promptly and fairly, and the privacy of the reporter will be respected.
+Instances of abusive, harassing or otherwise unacceptable behavior can be reported to the maintainer, [@skinleak](https://github.com/skinleak), through GitHub. All reports will be reviewed and investigated promptly and fairly, and the privacy of the reporter will be respected.
 
 Maintainers may remove, edit or reject comments, commits, code, issues and other contributions that don't align with this Code of Conduct, and may temporarily or permanently ban contributors for behavior they deem inappropriate.
 

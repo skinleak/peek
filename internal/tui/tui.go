@@ -15,9 +15,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/aaron03EM/peek/internal/kill"
-	"github.com/aaron03EM/peek/internal/scan"
-	"github.com/aaron03EM/peek/internal/ui"
+	"github.com/skinleak/peek/internal/kill"
+	"github.com/skinleak/peek/internal/scan"
+	"github.com/skinleak/peek/internal/ui"
 )
 
 const (

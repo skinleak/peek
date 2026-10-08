@@ -6,7 +6,7 @@ By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Reporting bugs and requesting features
 
-Open an [issue](https://github.com/aaron03EM/peek/issues/new/choose). For bugs, please include:
+Open an [issue](https://github.com/skinleak/peek/issues/new/choose). For bugs, please include:
 
 - your OS and version (`uname -a` on Linux)
 - the output of `go version` if you built from source
@@ -19,7 +19,7 @@ If you found a security problem, please don't open a public issue. See [SECURITY
 You need [Go](https://go.dev/dl/) 1.26 or newer.
 
 ```sh
-git clone https://github.com/aaron03EM/peek.git
+git clone https://github.com/skinleak/peek.git
 cd peek
 go build ./...
 go test ./...
