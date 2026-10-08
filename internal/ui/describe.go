@@ -27,10 +27,10 @@ var valueFlags = map[string]bool{
 	"-p": true, "--module-path": true,
 }
 
-// describe returns what an interpreter process is running, such as "vite"
+// Describe returns what an interpreter process is running, such as "vite"
 // for "node node_modules/.bin/vite" or "manage.py" for "python manage.py
 // runserver", or "" when name isn't an interpreter or it can't tell.
-func describe(name string, args []string) string {
+func Describe(name string, args []string) string {
 	if !interpreters[name] && !pythonName.MatchString(name) {
 		return ""
 	}

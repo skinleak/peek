@@ -252,7 +252,7 @@ func (m *model) footer() string {
 			keys = slices.Insert(keys, 5, keyHint{"esc", "clear filter", 7})
 		}
 	}
-	return " " + m.keyHints(keys, m.width-1)
+	return " " + keyHints(m.st, keys, m.width-1)
 }
 
 // keyHint is a key shown in the footer. When the footer is too narrow, the
@@ -262,12 +262,13 @@ type keyHint struct {
 	priority    int
 }
 
-func (m *model) keyHints(keys []keyHint, width int) string {
+// keyHints renders keys in a line at most width wide (unlimited if 0).
+func keyHints(st styles, keys []keyHint, width int) string {
 	const gap = "   "
 	render := func() string {
 		parts := make([]string, len(keys))
 		for i, k := range keys {
-			parts[i] = m.st.key.Render(k.key) + " " + m.st.dim.Render(k.action)
+			parts[i] = st.key.Render(k.key) + " " + st.dim.Render(k.action)
 		}
 		return strings.Join(parts, gap)
 	}
@@ -286,10 +287,15 @@ func (m *model) keyHints(keys []keyHint, width int) string {
 }
 
 func (m *model) truncate(s string) string {
-	if m.width <= 0 {
+	return truncateTo(s, m.width)
+}
+
+// truncateTo cuts s, which may contain styling, to width columns (unlimited if 0).
+func truncateTo(s string, width int) string {
+	if width <= 0 {
 		return s
 	}
-	return ansi.Truncate(s, m.width, "…")
+	return ansi.Truncate(s, width, "…")
 }
 
 func shortID(id string) string {
