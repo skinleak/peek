@@ -10,7 +10,7 @@
 `lsof -i :3000 | grep LISTEN | awk '{print $2}' | xargs kill` incantation everyone keeps googling.
 
 <p align="center">
-  <img src="docs/demo.svg" alt="peek listing listening ports with process, PID, address, working directory and uptime, then killing the process on port 3000" width="720">
+  <img src="docs/demo.svg" alt="peek's interactive view listing listening ports with process, PID, address, working directory and uptime, asking to confirm stopping the node process on port 3000" width="736">
 </p>
 
 ## Features
