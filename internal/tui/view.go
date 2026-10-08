@@ -216,7 +216,7 @@ func (m *model) help() []string {
 	var lines []string
 	for _, k := range keyHelp {
 		pad := strings.Repeat(" ", width-lipgloss.Width(k.keys)+3)
-		lines = append(lines, m.st.key.Render(k.keys)+pad+k.action)
+		lines = append(lines, m.st.key.Render(k.keys)+pad+m.st.text.Render(k.action))
 	}
 	lines = append(lines, "", m.st.dim.Render("Click a row to select it, click it again for details."))
 	var out []string
@@ -231,9 +231,9 @@ func (m *model) footer() string {
 	case m.confirm != nil:
 		return " " + m.st.prompt.Render(m.confirm.target.Action(m.confirm.force)+"?") + m.st.dim.Render(" [y/N]")
 	case m.filtering:
-		return " /" + m.filter + m.st.cursor.Render(" ") + m.st.dim.Render("  enter apply · esc clear")
+		return " " + m.st.text.Render("/"+m.filter) + m.st.cursor.Render(" ") + m.st.dim.Render("  enter apply · esc clear")
 	case m.stopping:
-		return " " + m.st.title.Render(spinFrames[m.spinner]) + " " + m.status
+		return " " + m.st.title.Render(spinFrames[m.spinner]) + " " + m.st.text.Render(m.status)
 	case m.status != "" && m.now().Sub(m.statusAt) < statusFor:
 		if m.statusErr {
 			return " " + m.st.err.Render("✗ "+m.status)

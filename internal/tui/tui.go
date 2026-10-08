@@ -559,13 +559,14 @@ func (m *model) moveCursor(entries []entry, delta int) {
 }
 
 type styles struct {
-	title, bold, dim, added, prompt, ok, warn, err, cursor, border, key lipgloss.Style
+	title, text, bold, dim, added, prompt, ok, warn, err, cursor, border, key lipgloss.Style
 }
 
 func newStyles(r *lipgloss.Renderer) styles {
 	return styles{
 		title:  r.NewStyle().Bold(true).Foreground(ui.Accent),
-		bold:   r.NewStyle().Bold(true),
+		text:   r.NewStyle().Foreground(ui.Text),
+		bold:   r.NewStyle().Bold(true).Foreground(ui.Text),
 		dim:    r.NewStyle().Foreground(ui.Muted),
 		added:  r.NewStyle().Bold(true).Foreground(ui.Success),
 		prompt: r.NewStyle().Bold(true).Foreground(ui.Warning),

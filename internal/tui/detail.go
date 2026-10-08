@@ -42,24 +42,29 @@ func (m *model) detailPanel(e entry, width int) []string {
 	}
 	field("port", m.portLine(e.row))
 	if l.ContainerID != "" {
-		field("container", fmt.Sprintf("%s %s", l.Container, m.st.dim.Render(shortID(l.ContainerID))))
+		field("container", m.st.text.Render(l.Container)+" "+m.st.dim.Render(shortID(l.ContainerID)))
 	}
 	if len(l.Command) > 0 {
-		field("command", wrap(strings.Join(l.Command, " "), valueWidth, maxCommandRows)...)
+		field("command", m.texts(wrap(strings.Join(l.Command, " "), valueWidth, maxCommandRows))...)
 	}
 	if l.Cwd != "" {
-		field("cwd", wrap(ui.Tildify(l.Cwd, m.cfg.Home), valueWidth, 2)...)
+		field("cwd", m.texts(wrap(ui.Tildify(l.Cwd, m.cfg.Home), valueWidth, 2))...)
 	}
 	if !l.StartTime.IsZero() {
 		now := m.now()
-		field("started", formatStart(l.StartTime, now)+m.st.dim.Render(" · "+ui.FormatUptime(now.Sub(l.StartTime))+" ago"))
+		field("started", m.st.text.Render(formatStart(l.StartTime, now))+m.st.dim.Render(" · "+ui.FormatUptime(now.Sub(l.StartTime))+" ago"))
 	}
 	if l.User != "" {
-		field("user", l.User)
+		field("user", m.st.text.Render(l.User))
 	}
 	field("clients", m.clientsLine(l.Connections))
 	if l.PID == 0 && l.ContainerID == "" {
-		lines = append(lines, "", m.st.dim.Render("This process belongs to another user. Run peek with sudo to see it."))
+		hint := "This process belongs to another user. Run peek with sudo to see it."
+		if m.cfg.Root {
+			// Root can still be denied, e.g. in a container without CAP_SYS_PTRACE.
+			hint = "peek isn't allowed to see which process owns this port."
+		}
+		lines = append(lines, "", m.st.dim.Render(hint))
 	}
 
 	return box(m.st, m.panelTitle(e), lines, width)
@@ -99,7 +104,15 @@ func (m *model) clientsLine(n int) string {
 	if n == 0 {
 		return m.st.dim.Render("none connected")
 	}
-	return strconv.Itoa(n) + " connected"
+	return m.st.text.Render(strconv.Itoa(n) + " connected")
+}
+
+// texts renders each line in the normal text color.
+func (m *model) texts(lines []string) []string {
+	for i, l := range lines {
+		lines[i] = m.st.text.Render(l)
+	}
+	return lines
 }
 
 // formatStart renders a start time relative to now: "today 09:14",

@@ -10,7 +10,7 @@
 `lsof -i :3000 | grep LISTEN | awk '{print $2}' | xargs kill` incantation everyone keeps googling.
 
 <p align="center">
-  <img src="docs/demo.svg" alt="peek's interactive view listing listening ports with process, PID, address, working directory and uptime, asking to confirm stopping the node process on port 3000" width="736">
+  <img src="docs/demo.gif" alt="peek's interactive view: listening ports with process, PID, address, working directory and uptime; the detail panel for a Next.js server with three connected clients; a newly started server appearing; sorting by uptime; filtering for a Django server and stopping it; and the key reference" width="1100">
 </p>
 
 ## Features
@@ -70,14 +70,14 @@ Flags can go before or after the ports, so `peek kill 3000 -f -y` works too.
 
 ### Reading the output
 
-| Column  | Meaning |
-|---------|---------|
-| PORT    | The listening TCP port |
+| Column  | Meaning                                                                                                                                          |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PORT    | The listening TCP port                                                                                                                           |
 | PROCESS | Process name, plus the script or module for interpreters like `node`, `python` or `java` (`-` if it belongs to another user and you aren't root) |
-| PID     | Process ID |
-| ADDRESS | Bind addresses: amber when exposed to the network, green when local-only |
-| CWD     | The process's working directory, with your home shown as `~` |
-| UPTIME  | How long the process has been running |
+| PID     | Process ID                                                                                                                                       |
+| ADDRESS | Bind addresses: amber when exposed to the network, green when local-only                                                                         |
+| CWD     | The process's working directory, with your home shown as `~`                                                                                     |
+| UPTIME  | How long the process has been running                                                                                                            |
 
 A process listening on the same port on several addresses (such as `127.0.0.1` and `::1`) gets one row listing all of them. A socket shared by several processes (for example a pre-forking web server) shows one row per process.
 
@@ -89,22 +89,22 @@ Colors adapt to light and dark terminals. They're switched off automatically whe
 
 Press `enter` for a detail panel with everything peek knows about the selected port: its bind addresses, full command line, working directory, start time, user and how many clients are connected right now. From the list or the panel, `o` opens the port in your browser and `c` copies its URL.
 
-| Key | Action |
-|-----|--------|
-| `↑` `↓` / `j` `k` | Move the selection |
-| `PgUp` `PgDn`, `g` `G` | Jump by a page, or to the top or bottom |
-| `enter` | Show or hide the detail panel for the selected port |
-| `o` | Open the port in your browser (`http://localhost:<port>`) |
-| `c` | Copy its URL to the clipboard |
-| `x` | Stop the selected process (SIGTERM) or Docker container, after you confirm |
-| `X` | Force kill it (SIGKILL, or `docker kill`) after you confirm |
-| `/` | Filter by port, process, command, directory, address or user, with matches highlighted; `enter` applies the filter and `esc` clears it |
-| `s` | Change the sort order: port, process name, or uptime (newest first) |
-| `S` | Reverse the sort order |
-| `r` | Rescan now |
-| `?` | Show all keys |
-| `esc` | Go back from the detail panel, or clear the filter |
-| `q` / `Ctrl+C` | Quit |
+| Key                    | Action                                                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `↑` `↓` / `j` `k`      | Move the selection                                                                                                                     |
+| `PgUp` `PgDn`, `g` `G` | Jump by a page, or to the top or bottom                                                                                                |
+| `enter`                | Show or hide the detail panel for the selected port                                                                                    |
+| `o`                    | Open the port in your browser (`http://localhost:<port>`)                                                                              |
+| `c`                    | Copy its URL to the clipboard                                                                                                          |
+| `x`                    | Stop the selected process (SIGTERM) or Docker container, after you confirm                                                             |
+| `X`                    | Force kill it (SIGKILL, or `docker kill`) after you confirm                                                                            |
+| `/`                    | Filter by port, process, command, directory, address or user, with matches highlighted; `enter` applies the filter and `esc` clears it |
+| `s`                    | Change the sort order: port, process name, or uptime (newest first)                                                                    |
+| `S`                    | Reverse the sort order                                                                                                                 |
+| `r`                    | Rescan now                                                                                                                             |
+| `?`                    | Show all keys                                                                                                                          |
+| `esc`                  | Go back from the detail panel, or clear the filter                                                                                     |
+| `q` / `Ctrl+C`         | Quit                                                                                                                                   |
 
 In narrow terminals peek leaves out the least important details first, such as the CWD and UPTIME columns, instead of wrapping lines.
 
@@ -158,11 +158,11 @@ $ peek 3000 --json
 
 ### Exit codes
 
-| Code | Meaning |
-|------|---------|
-| 0    | Success |
+| Code | Meaning                                                                                   |
+| ---- | ----------------------------------------------------------------------------------------- |
+| 0    | Success                                                                                   |
 | 1    | Nothing is listening on the requested port(s), the kill was declined, or something failed |
-| 2    | Usage error, such as an invalid port or unknown flag |
+| 2    | Usage error, such as an invalid port or unknown flag                                      |
 
 This makes `peek` handy in scripts:
 
@@ -172,11 +172,11 @@ peek 5432 >/dev/null || echo "start the database first"
 
 ## Platform support
 
-| OS      | Status |
-|---------|--------|
-| Linux   | Supported (amd64, arm64) |
+| OS      | Status                              |
+| ------- | ----------------------------------- |
+| Linux   | Supported (amd64, arm64)            |
 | macOS   | Supported (Apple Silicon and Intel) |
-| Windows | Planned |
+| Windows | Planned                             |
 
 ## How it works
 

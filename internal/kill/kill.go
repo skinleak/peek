@@ -212,6 +212,9 @@ func waitExit(p *os.Process, timeout time.Duration) bool {
 		if err := p.Signal(syscall.Signal(0)); err != nil {
 			return true // ErrProcessDone, or ESRCH on older kernels
 		}
+		if isZombie(p.Pid) {
+			return true // exited, but its parent hasn't reaped it yet
+		}
 		if time.Now().After(deadline) {
 			return false
 		}
