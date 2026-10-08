@@ -2,8 +2,10 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -69,61 +71,139 @@ const (
 
 var headers = [numCols]string{"PORT", "PROCESS", "PID", "ADDRESS", "CWD", "UPTIME"}
 
+// Row is one line of the table: listeners with the same port and owner that
+// differ only in bind address, such as 127.0.0.1 and ::1.
+type Row []scan.Listener
+
+// rowKey identifies a row's port and owner.
+type rowKey struct {
+	port      uint16
+	pid       int
+	container string
+	user      string // tells apart owners we can't see
+}
+
+func keyOf(l scan.Listener) rowKey {
+	k := rowKey{port: l.Port, pid: l.PID, container: l.ContainerID}
+	if l.PID == 0 && l.ContainerID == "" {
+		k.user = l.User
+	}
+	return k
+}
+
+// Key identifies the row's port and owner across scans.
+func (r Row) Key() string {
+	k := keyOf(r[0])
+	return fmt.Sprintf("%d/%d/%s/%s", k.port, k.pid, k.container, k.user)
+}
+
+// GroupRows merges listeners that share a port and owner into one row,
+// keeping the order in which each row first appears.
+func GroupRows(ls []scan.Listener) []Row {
+	index := make(map[rowKey]int)
+	var rows []Row
+	for _, l := range ls {
+		k := keyOf(l)
+		i, ok := index[k]
+		if !ok {
+			i = len(rows)
+			index[k] = i
+			rows = append(rows, nil)
+		}
+		rows[i] = append(rows[i], l)
+	}
+	return rows
+}
+
+// addresses returns the row's distinct bind addresses and whether any of
+// them is reachable from other hosts.
+func (r Row) addresses() (addrs []string, exposed bool) {
+	for _, l := range r {
+		if a := l.Address.String(); !slices.Contains(addrs, a) {
+			addrs = append(addrs, a)
+		}
+		exposed = exposed || l.Exposed()
+	}
+	return addrs, exposed
+}
+
+// RowStyle controls how Lines highlights a row.
+type RowStyle struct {
+	Selected bool // drawn with a highlighted background
+	Faded    bool // drawn dimmed, e.g. for a port that just closed
+}
+
 // Table writes ls as an aligned, borderless table.
 func Table(w io.Writer, ls []scan.Listener, o Options) error {
-	st := newStyles(newRenderer(w, o.Color))
+	lines := Lines(NewRenderer(w, o.Color), GroupRows(ls), o, nil)
+	_, err := io.WriteString(w, strings.Join(lines, "\n")+"\n")
+	return err
+}
 
-	rows := make([][numCols]cell, 0, len(ls)+1)
+// Lines renders rows as aligned table lines without newlines: the header,
+// then one line per row. style, if not nil, picks each row's highlighting.
+func Lines(r *lipgloss.Renderer, rows []Row, o Options, style func(i int) RowStyle) []string {
+	st := newStyles(r)
+
+	cells := make([][numCols]cell, 0, len(rows)+1)
 	var head [numCols]cell
 	for i, h := range headers {
 		head[i] = cell{text: h, style: st.header, alignRight: i == colPort || i == colPID}
 	}
-	rows = append(rows, head)
-	for _, l := range ls {
-		rows = append(rows, listenerRow(l, st, o))
-	}
-
-	widths := columnWidths(rows)
-	fitCwd(rows, &widths, o.Width)
-
-	var b strings.Builder
+	cells = append(cells, head)
 	for _, row := range rows {
-		writeRow(&b, row, widths, st.dim)
+		cells = append(cells, rowCells(row, st, o))
 	}
-	_, err := io.WriteString(w, b.String())
-	return err
+
+	widths := columnWidths(cells)
+	fitCwd(cells, &widths, o.Width)
+
+	lines := make([]string, len(cells))
+	for i, c := range cells {
+		var rs RowStyle
+		if i > 0 && style != nil {
+			rs = style(i - 1)
+		}
+		lines[i] = renderRow(c, widths, st, rs)
+	}
+	return lines
 }
 
-func listenerRow(l scan.Listener, st styles, o Options) [numCols]cell {
-	var row [numCols]cell
-	row[colPort] = cell{text: strconv.Itoa(int(l.Port)), style: st.port, alignRight: true}
+func rowCells(row Row, st styles, o Options) [numCols]cell {
+	l := row[0]
+	var c [numCols]cell
+	c[colPort] = cell{text: strconv.Itoa(int(l.Port)), style: st.port, alignRight: true}
 
-	row[colProcess] = cell{text: l.ProcessName, style: st.plain}
-	row[colPID] = cell{text: strconv.Itoa(l.PID), style: st.plain, alignRight: true}
+	c[colProcess] = cell{text: l.ProcessName, style: st.plain}
+	if target := describe(l.ProcessName, l.Command); target != "" {
+		c[colProcess].suffix = " (" + target + ")"
+	}
+	c[colPID] = cell{text: strconv.Itoa(l.PID), style: st.plain, alignRight: true}
 	if l.PID == 0 {
-		row[colProcess] = cell{text: unknown, style: st.dim}
-		row[colPID] = cell{text: unknown, style: st.dim, alignRight: true}
+		c[colProcess] = cell{text: unknown, style: st.dim}
+		c[colPID] = cell{text: unknown, style: st.dim, alignRight: true}
 	}
 	if l.Container != "" {
-		row[colProcess] = cell{text: l.Container, style: st.plain, suffix: " (docker)"}
+		c[colProcess] = cell{text: l.Container, style: st.plain, suffix: " (docker)"}
 	}
 
+	addrs, exposed := row.addresses()
 	addrStyle := st.local
-	if l.Exposed() {
+	if exposed {
 		addrStyle = st.exposed
 	}
-	row[colAddress] = cell{text: l.Address.String(), style: addrStyle}
+	c[colAddress] = cell{text: strings.Join(addrs, ","), style: addrStyle}
 
-	row[colCwd] = cell{text: unknown, style: st.dim}
+	c[colCwd] = cell{text: unknown, style: st.dim}
 	if l.Cwd != "" {
-		row[colCwd] = cell{text: tildify(l.Cwd, o.Home), style: st.plain}
+		c[colCwd] = cell{text: tildify(l.Cwd, o.Home), style: st.plain}
 	}
 
-	row[colUptime] = cell{text: unknown, style: st.dim}
+	c[colUptime] = cell{text: unknown, style: st.dim}
 	if !l.StartTime.IsZero() {
-		row[colUptime] = cell{text: formatUptime(o.Now.Sub(l.StartTime)), style: st.dim}
+		c[colUptime] = cell{text: formatUptime(o.Now.Sub(l.StartTime)), style: st.dim}
 	}
-	return row
+	return c
 }
 
 func columnWidths(rows [][numCols]cell) [numCols]int {
@@ -157,26 +237,38 @@ func fitCwd(rows [][numCols]cell, widths *[numCols]int, maxWidth int) {
 	}
 }
 
-func writeRow(b *strings.Builder, row [numCols]cell, widths [numCols]int, dim lipgloss.Style) {
+func renderRow(row [numCols]cell, widths [numCols]int, st styles, rs RowStyle) string {
+	text, suffix, space := func(c cell) lipgloss.Style { return c.style }, st.dim, st.plain
+	if rs.Faded {
+		text = func(cell) lipgloss.Style { return st.dim }
+	}
+	if rs.Selected {
+		base := text
+		text = func(c cell) lipgloss.Style { return base(c).Background(selection) }
+		suffix = suffix.Background(selection)
+		space = space.Background(selection)
+	}
+
+	var b strings.Builder
 	for i, c := range row {
-		pad := strings.Repeat(" ", widths[i]-c.width())
-		styled := c.style.Render(c.text)
+		pad := space.Render(strings.Repeat(" ", widths[i]-c.width()))
+		styled := text(c).Render(c.text)
 		if c.suffix != "" {
-			styled += dim.Render(c.suffix)
+			styled += suffix.Render(c.suffix)
 		}
 		switch {
 		case c.alignRight:
 			b.WriteString(pad + styled)
-		case i == numCols-1:
+		case i == numCols-1 && !rs.Selected:
 			b.WriteString(styled) // no trailing whitespace
 		default:
 			b.WriteString(styled + pad)
 		}
 		if i < numCols-1 {
-			b.WriteString(columnGap)
+			b.WriteString(space.Render(columnGap))
 		}
 	}
-	b.WriteByte('\n')
+	return b.String()
 }
 
 // JSON writes ls as an indented JSON array (never null).

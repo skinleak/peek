@@ -137,6 +137,32 @@ func parsePIDs(b []byte) []int {
 	return pids
 }
 
+// parseProcArgs2 extracts the arguments from the kern.procargs2 sysctl:
+// argc as a 32-bit integer, the executable path, NUL padding, then argc
+// NUL-terminated arguments followed by the environment.
+func parseProcArgs2(b []byte) []string {
+	if len(b) < 4 {
+		return nil
+	}
+	argc := int(int32(le.Uint32(b)))
+	b = b[4:]
+	i := bytes.IndexByte(b, 0) // end of the executable path
+	if i < 0 {
+		return nil
+	}
+	b = bytes.TrimLeft(b[i:], "\x00")
+	var args []string
+	for len(args) < argc && len(b) > 0 {
+		end := bytes.IndexByte(b, 0)
+		if end < 0 {
+			end = len(b)
+		}
+		args = append(args, string(b[:end]))
+		b = b[min(end+1, len(b)):]
+	}
+	return args
+}
+
 func cString(b []byte) string {
 	if i := bytes.IndexByte(b, 0); i >= 0 {
 		b = b[:i]

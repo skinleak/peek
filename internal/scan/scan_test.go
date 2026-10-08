@@ -106,3 +106,19 @@ func TestExposed(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribePorts(t *testing.T) {
+	tests := []struct {
+		ranges []PortRange
+		want   string
+	}{
+		{[]PortRange{{3000, 3000}}, "port 3000"},
+		{[]PortRange{{3000, 3999}}, "ports 3000-3999"},
+		{[]PortRange{{22, 22}, {8080, 8080}}, "ports 22, 8080"},
+	}
+	for _, tt := range tests {
+		if got := DescribePorts(tt.ranges); got != tt.want {
+			t.Errorf("DescribePorts(%v) = %q, want %q", tt.ranges, got, tt.want)
+		}
+	}
+}

@@ -34,6 +34,7 @@ type procScanner struct {
 // procInfo is what we know about a process. Fields we could not read are left zero.
 type procInfo struct {
 	name  string
+	args  []string
 	cwd   string
 	start time.Time
 }
@@ -77,6 +78,7 @@ func (s *procScanner) Scan() ([]Listener, error) {
 			l := base
 			l.PID = pid
 			l.ProcessName = info.name
+			l.Command = info.args
 			l.Cwd = info.cwd
 			l.StartTime = info.start
 			out = append(out, l)
@@ -158,6 +160,10 @@ func (s *procScanner) readProc(pid int, boot time.Time) procInfo {
 	var info procInfo
 	if b, err := os.ReadFile(filepath.Join(dir, "comm")); err == nil {
 		info.name = strings.TrimSpace(string(b))
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
+		info.args = parseCmdline(b)
+		info.name = fullName(info.name, info.args)
 	}
 	if cwd, err := os.Readlink(filepath.Join(dir, "cwd")); err == nil {
 		info.cwd = cwd

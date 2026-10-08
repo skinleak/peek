@@ -58,3 +58,15 @@ func truncateLeft(s string, width int) string {
 	}
 	return "…" + string(r[len(r)-width+1:])
 }
+
+// truncateRight shortens s to at most width runes, keeping the start.
+func truncateRight(s string, width int) string {
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	if width <= 1 {
+		return "…"
+	}
+	return string(r[:width-1]) + "…"
+}

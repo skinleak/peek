@@ -14,27 +14,29 @@ Usage:
   peek [flags]                    list everything listening
   peek <port|range>... [flags]    show listeners on ports, e.g. 3000 or 3000-3999
   peek kill <port|range>...       terminate the processes on those ports
+  peek -i [<port|range>...]       live view to browse ports and stop processes
 
 Flags:
-  --json        machine-readable output
-  -y, --yes     kill: don't ask for confirmation
-  -f, --force   kill: send SIGKILL instead of SIGTERM
-  -h, --help    show this help
-  --version     print the version
+  -i, --interactive  live view: select a row and press x to stop it
+  --json             machine-readable output
+  -y, --yes          kill: don't ask for confirmation
+  -f, --force        kill: send SIGKILL instead of SIGTERM
+  -h, --help         show this help
+  --version          print the version
 
 Exit codes: 0 success, 1 nothing listening or operation failed, 2 usage error.
 `
 
 // config is the parsed command line.
 type config struct {
-	kill    bool
-	ranges  []scan.PortRange
-	json    bool
-	watch   bool
-	force   bool
-	yes     bool
-	help    bool
-	version bool
+	kill        bool
+	ranges      []scan.PortRange
+	json        bool
+	interactive bool
+	force       bool
+	yes         bool
+	help        bool
+	version     bool
 }
 
 // parseArgs parses the command line (without the program name). Flags may
@@ -80,8 +82,8 @@ func (c *config) setFlag(arg string) error {
 	switch arg {
 	case "--json":
 		c.json = true
-	case "-w", "--watch":
-		c.watch = true
+	case "-i", "--interactive":
+		c.interactive = true
 	case "-f", "--force":
 		c.force = true
 	case "-y", "--yes":
@@ -98,8 +100,10 @@ func (c *config) setFlag(arg string) error {
 
 func (c config) validate() error {
 	switch {
-	case c.watch:
-		return errors.New("--watch is not available yet")
+	case c.interactive && c.kill:
+		return errors.New("--interactive cannot be used with kill; press x in the interactive view instead")
+	case c.interactive && c.json:
+		return errors.New("--interactive cannot be used with --json")
 	case c.kill && c.json:
 		return errors.New("--json cannot be used with kill")
 	case !c.kill && c.force:
@@ -108,16 +112,4 @@ func (c config) validate() error {
 		return errors.New("--yes only applies to 'peek kill'")
 	}
 	return nil
-}
-
-// describePorts renders ranges for messages: "port 3000", "ports 3000-3999".
-func describePorts(ranges []scan.PortRange) string {
-	parts := make([]string, len(ranges))
-	for i, r := range ranges {
-		parts[i] = r.String()
-	}
-	if len(ranges) == 1 && ranges[0].Lo == ranges[0].Hi {
-		return "port " + parts[0]
-	}
-	return "ports " + strings.Join(parts, ", ")
 }

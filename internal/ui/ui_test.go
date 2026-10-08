@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/muesli/termenv"
+
 	"github.com/aaron03EM/peek/internal/scan"
 )
 
@@ -144,5 +146,84 @@ func TestJSON(t *testing.T) {
 		if strings.Contains(first, absent) {
 			t.Errorf("first entry should omit %s:\n%s", absent, first)
 		}
+	}
+}
+
+func TestTableMergesAddressesOfOneOwner(t *testing.T) {
+	addr := netip.MustParseAddr
+	ls := []scan.Listener{
+		{Port: 53, Address: addr("127.0.0.53"), User: "systemd-resolve"},
+		{Port: 53, Address: addr("127.0.0.54"), User: "systemd-resolve"},
+		{Port: 6379, Address: addr("127.0.0.1"), PID: 900, ProcessName: "redis-server"},
+		{Port: 6379, Address: addr("::1"), PID: 900, ProcessName: "redis-server"},
+		{Port: 8080, Address: addr("0.0.0.0"), PID: 200, ProcessName: "nginx"},
+		{Port: 8080, Address: addr("0.0.0.0"), PID: 201, ProcessName: "nginx"},
+	}
+	var buf bytes.Buffer
+	if err := Table(&buf, ls, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	want := "" +
+		"PORT  PROCESS       PID  ADDRESS                CWD  UPTIME\n" +
+		"  53  -               -  127.0.0.53,127.0.0.54  -    -\n" +
+		"6379  redis-server  900  127.0.0.1,::1          -    -\n" +
+		"8080  nginx         200  0.0.0.0                -    -\n" +
+		"8080  nginx         201  0.0.0.0                -    -\n"
+	if got := buf.String(); got != want {
+		t.Errorf("table mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestTableDescribesInterpreters(t *testing.T) {
+	ls := sample()
+	ls[1].Command = []string{"node", "/home/dev/code/web/node_modules/.bin/vite", "--port", "3000"}
+	var buf bytes.Buffer
+	if err := Table(&buf, ls, Options{Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "node (vite)") {
+		t.Errorf("expected process to read \"node (vite)\":\n%s", buf.String())
+	}
+}
+
+func TestDescribe(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"nginx", []string{"nginx", "-g", "daemon off;"}, ""},
+		{"node", []string{"node"}, ""},
+		{"node", []string{"node", "server.js"}, "server.js"},
+		{"node", []string{"node", "--inspect", "-r", "dotenv/config", "dist/main.js"}, "main.js"},
+		{"node", []string{"/usr/bin/node", "/app/node_modules/vite/bin/vite.js"}, "vite"},
+		{"node", []string{"node", "/app/node_modules/@nestjs/cli/bin/nest.js", "start"}, "@nestjs/cli"},
+		{"node", []string{"node", "/app/node_modules/.bin/next", "dev"}, "next"},
+		{"python3", []string{"python3", "manage.py", "runserver"}, "manage.py"},
+		{"python3.12", []string{"python3.12", "-m", "http.server", "8000"}, "http.server"},
+		{"python", []string{"python", "-c", "import x"}, ""},
+		{"java", []string{"java", "-Xmx1g", "-jar", "/opt/app/service.jar"}, "service.jar"},
+		{"java", []string{"java", "-cp", "lib/*", "org.gradle.launcher.daemon.bootstrap.GradleDaemon"}, "GradleDaemon"},
+		{"deno", []string{"deno", "run", "-A", "main.ts"}, "main.ts"},
+		{"node", []string{"node", "/srv/a-really-long-script-name-for-a-server.js"}, "a-really-long-script-na…"},
+	}
+	for _, tt := range tests {
+		if got := describe(tt.name, tt.args); got != tt.want {
+			t.Errorf("describe(%q, %q) = %q, want %q", tt.name, tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestLinesStylesSelectedRowOnly(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, true)
+	r.SetColorProfile(termenv.TrueColor)
+	rows := GroupRows(sample())
+	lines := Lines(r, rows, Options{Now: now}, func(i int) RowStyle { return RowStyle{Selected: i == 1} })
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want header + 2 rows", len(lines))
+	}
+	// 48;2 starts a 24-bit background color.
+	if strings.Contains(lines[1], "48;2") || !strings.Contains(lines[2], "48;2") {
+		t.Errorf("only the selected row should have a background:\n%q\n%q", lines[1], lines[2])
 	}
 }

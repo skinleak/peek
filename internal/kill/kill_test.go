@@ -39,7 +39,7 @@ func TestConfirm(t *testing.T) {
 	}
 	for input, want := range tests {
 		var out bytes.Buffer
-		got, err := confirm(strings.NewReader(input), &out, []string{one[0].action(false)})
+		got, err := confirm(strings.NewReader(input), &out, []string{one[0].Action(false)})
 		if err != nil {
 			t.Fatalf("confirm(%q): %v", input, err)
 		}
@@ -67,10 +67,10 @@ func TestTargetsGroupsContainers(t *testing.T) {
 	if len(targets) != 2 {
 		t.Fatalf("got %d targets, want 2: %+v", len(targets), targets)
 	}
-	if got := targets[0].action(false); got != "Stop Docker container db on port 5432" {
+	if got := targets[0].Action(false); got != "Stop Docker container db on port 5432" {
 		t.Errorf("action = %q", got)
 	}
-	if got := targets[1].action(true); got != "Kill Docker container cache on port 6379" {
+	if got := targets[1].Action(true); got != "Kill Docker container cache on port 6379" {
 		t.Errorf("forced action = %q", got)
 	}
 }

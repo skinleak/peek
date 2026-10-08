@@ -3,6 +3,7 @@ package kill
 
 import (
 	"bufio"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -43,8 +44,8 @@ func (t Target) String() string {
 	return fmt.Sprintf("%s (PID %d) on %s %s", t.Name, t.PID, noun, strings.Join(ports, ", "))
 }
 
-// action describes what Run will do to t.
-func (t Target) action(force bool) string {
+// Action describes what Run will do to t, e.g. "Send SIGTERM to node (PID 42) on port 3000".
+func (t Target) Action(force bool) string {
 	switch {
 	case t.ContainerID != "" && force:
 		return "Kill " + t.String()
@@ -96,6 +97,10 @@ type Options struct {
 	In    io.Reader     // where confirmation answers are read from
 	Out   io.Writer     // where prompts and progress are written
 
+	// ForceHint tells the user how to retry with SIGKILL when a process
+	// ignores SIGTERM. It defaults to the CLI's "use --force to send SIGKILL".
+	ForceHint string
+
 	// StopContainer stops a Docker container; nil if Docker is unavailable.
 	StopContainer func(id string, force bool) error
 }
@@ -109,7 +114,7 @@ func Run(targets []Target, o Options) error {
 		if t.PID == 1 && t.ContainerID == "" {
 			return fmt.Errorf("refusing to signal PID 1 (%s), which holds port %d; stop the service or socket unit instead", t.Name, t.Ports[0])
 		}
-		actions[i] = t.action(o.Force)
+		actions[i] = t.Action(o.Force)
 	}
 
 	if !o.Yes {
@@ -192,7 +197,7 @@ func stop(t Target, sig syscall.Signal, o Options) error {
 	if !waitExit(p, o.Wait) {
 		hint := ""
 		if sig != syscall.SIGKILL {
-			hint = "; use --force to send SIGKILL"
+			hint = "; " + cmp.Or(o.ForceHint, "use --force to send SIGKILL")
 		}
 		return fmt.Errorf("%s is still running after %s%s", t, o.Wait, hint)
 	}

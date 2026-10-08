@@ -2,11 +2,13 @@ package scan
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/netip"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -173,4 +175,30 @@ func startTimeFromTicks(boot time.Time, ticks uint64) time.Time {
 	secs := time.Duration(ticks/userHZ) * time.Second
 	frac := time.Duration(ticks%userHZ) * time.Second / userHZ
 	return boot.Add(secs + frac)
+}
+
+// parseCmdline splits the contents of /proc/<pid>/cmdline, which holds the
+// arguments as NUL-terminated strings. Kernel threads have an empty cmdline.
+func parseCmdline(b []byte) []string {
+	b = bytes.TrimRight(b, "\x00")
+	if len(b) == 0 {
+		return nil
+	}
+	return strings.Split(string(b), "\x00")
+}
+
+// commLen is the longest process name the kernel keeps in /proc/<pid>/comm
+// (TASK_COMM_LEN minus the terminator).
+const commLen = 15
+
+// fullName returns the untruncated process name: when comm was cut to
+// commLen bytes and argv[0]'s base name extends it, the base name wins.
+func fullName(comm string, args []string) string {
+	if len(comm) < commLen || len(args) == 0 {
+		return comm
+	}
+	if base := path.Base(args[0]); strings.HasPrefix(base, comm) {
+		return base
+	}
+	return comm
 }

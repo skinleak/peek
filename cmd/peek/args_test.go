@@ -25,6 +25,8 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"-h"}, config{help: true}},
 		{[]string{"kill", "--help"}, config{help: true}},
 		{[]string{"--version"}, config{version: true}},
+		{[]string{"-i"}, config{interactive: true}},
+		{[]string{"3000-3999", "--interactive"}, config{interactive: true, ranges: []scan.PortRange{pr(3000, 3999)}}},
 	}
 	for _, tt := range tests {
 		got, err := parseArgs(tt.args)
@@ -52,7 +54,8 @@ func TestParseArgsErrors(t *testing.T) {
 		{[]string{"kill", "3000", "--json"}, "--json cannot be used with kill"},
 		{[]string{"3000", "--force"}, "--force only applies"},
 		{[]string{"3000", "-y"}, "--yes only applies"},
-		{[]string{"--watch"}, "not available yet"},
+		{[]string{"-i", "kill", "3000"}, "--interactive cannot be used with kill"},
+		{[]string{"-i", "--json"}, "--interactive cannot be used with --json"},
 	}
 	for _, tt := range tests {
 		_, err := parseArgs(tt.args)
@@ -62,24 +65,8 @@ func TestParseArgsErrors(t *testing.T) {
 	}
 }
 
-func TestDescribePorts(t *testing.T) {
-	tests := []struct {
-		ranges []scan.PortRange
-		want   string
-	}{
-		{[]scan.PortRange{pr(3000, 3000)}, "port 3000"},
-		{[]scan.PortRange{pr(3000, 3999)}, "ports 3000-3999"},
-		{[]scan.PortRange{pr(22, 22), pr(8080, 8080)}, "ports 22, 8080"},
-	}
-	for _, tt := range tests {
-		if got := describePorts(tt.ranges); got != tt.want {
-			t.Errorf("describePorts(%v) = %q, want %q", tt.ranges, got, tt.want)
-		}
-	}
-}
-
 func equalConfig(a, b config) bool {
-	return a.kill == b.kill && a.json == b.json && a.watch == b.watch &&
+	return a.kill == b.kill && a.json == b.json && a.interactive == b.interactive &&
 		a.force == b.force && a.yes == b.yes && a.help == b.help && a.version == b.version &&
 		slices.Equal(a.ranges, b.ranges)
 }
