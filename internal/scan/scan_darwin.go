@@ -2,7 +2,11 @@
 
 package scan
 
-import "errors"
+import (
+	"errors"
+
+	"golang.org/x/sys/unix"
+)
 
 // New returns the scanner for the current platform.
 func New() Scanner {
@@ -73,6 +77,9 @@ func (s *libprocScanner) readProc(pid int) Listener {
 	}
 	if n := procPIDInfo(pid, procPIDVnodePathInfo, buf); n > 0 {
 		l.Cwd = parseVnodePathCwd(buf[:n])
+	}
+	if b, err := unix.SysctlRaw("kern.procargs2", pid); err == nil {
+		l.Command = parseProcArgs2(b)
 	}
 	return l
 }

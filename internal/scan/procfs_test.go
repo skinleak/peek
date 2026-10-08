@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -147,5 +148,41 @@ func TestStartTimeFromTicks(t *testing.T) {
 	const tenYears = 10 * 365 * 24 * 3600 * userHZ
 	if got := startTimeFromTicks(boot, tenYears); !got.After(boot) {
 		t.Errorf("overflow: start time %v is not after boot %v", got, boot)
+	}
+}
+
+func TestParseCmdline(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"\x00", nil},
+		{"node\x00server.js\x00", []string{"node", "server.js"}},
+		{"python3\x00-m\x00http.server\x00", []string{"python3", "-m", "http.server"}},
+		{"nginx: worker process", []string{"nginx: worker process"}}, // rewritten argv
+	}
+	for _, tt := range tests {
+		if got := parseCmdline([]byte(tt.in)); !slices.Equal(got, tt.want) {
+			t.Errorf("parseCmdline(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestFullName(t *testing.T) {
+	tests := []struct {
+		comm string
+		args []string
+		want string
+	}{
+		{"node", []string{"/usr/bin/node"}, "node"},
+		{"code-insiders-l", []string{"/opt/code/code-insiders-launcher"}, "code-insiders-launcher"},
+		{"code-insiders-l", []string{"something-else"}, "code-insiders-l"},
+		{"code-insiders-l", nil, "code-insiders-l"},
+	}
+	for _, tt := range tests {
+		if got := fullName(tt.comm, tt.args); got != tt.want {
+			t.Errorf("fullName(%q, %q) = %q, want %q", tt.comm, tt.args, got, tt.want)
+		}
 	}
 }

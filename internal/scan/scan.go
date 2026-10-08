@@ -24,6 +24,7 @@ type Listener struct {
 	Address     netip.Addr `json:"address"`
 	PID         int        `json:"pid,omitzero"` // 0 when the owner could not be determined
 	ProcessName string     `json:"process,omitzero"`
+	Command     []string   `json:"command,omitzero"` // the process's arguments, starting with argv[0]
 	Cwd         string     `json:"cwd,omitzero"`
 	StartTime   time.Time  `json:"start_time,omitzero"`
 	User        string     `json:"user,omitzero"`
@@ -106,4 +107,16 @@ func Filter(ls []Listener, ranges []PortRange) []Listener {
 		}
 	}
 	return out
+}
+
+// DescribePorts renders ranges for messages: "port 3000", "ports 3000-3999".
+func DescribePorts(ranges []PortRange) string {
+	parts := make([]string, len(ranges))
+	for i, r := range ranges {
+		parts[i] = r.String()
+	}
+	if len(ranges) == 1 && ranges[0].Lo == ranges[0].Hi {
+		return "port " + parts[0]
+	}
+	return "ports " + strings.Join(parts, ", ")
 }

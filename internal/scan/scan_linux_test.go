@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 // fakeProc builds a minimal procfs tree in a temp dir from the testdata fixtures.
 //
-//	pid 100 "node"   holds 127.0.0.1:3000 (11111) on two fds, plus a non-socket fd
+//	pid 100 "node"   runs "node server.js" and holds 127.0.0.1:3000 (11111) on two fds, plus a non-socket fd
 //	pid 200 "nginx"  holds 0.0.0.0:8080 (22222) and [::]:8080 (44444)
 //	pid 201 "nginx"  pre-forked worker sharing 0.0.0.0:8080 (22222)
 //	pid 300          has no fd directory (as if permission was denied)
@@ -33,6 +34,7 @@ func fakeProc(t *testing.T) string {
 		6: "socket:[22222]", 7: "socket:[44444]", 8: "socket:[99999]",
 	})
 	addProc(t, root, 201, "nginx", "/", map[int]string{6: "socket:[22222]"})
+	mustWrite(t, filepath.Join(root, "100", "cmdline"), "node\x00server.js\x00")
 	mustMkdir(t, filepath.Join(root, "300"))
 	mustMkdir(t, filepath.Join(root, "self")) // non-numeric entries are ignored
 	return root
@@ -69,7 +71,7 @@ func TestProcScanner(t *testing.T) {
 	addr := netip.MustParseAddr
 	want := []Listener{
 		{Port: 22, Protocol: "tcp6", Address: addr("::1"), User: "root"},
-		{Port: 3000, Protocol: "tcp", Address: addr("127.0.0.1"), User: "dev", PID: 100, ProcessName: "node", Cwd: "/home/dev/app", StartTime: started},
+		{Port: 3000, Protocol: "tcp", Address: addr("127.0.0.1"), User: "dev", PID: 100, ProcessName: "node", Command: []string{"node", "server.js"}, Cwd: "/home/dev/app", StartTime: started},
 		{Port: 5001, Protocol: "tcp6", Address: addr("127.0.0.1"), User: "dev"},
 		{Port: 8080, Protocol: "tcp", Address: addr("0.0.0.0"), User: "root", PID: 200, ProcessName: "nginx", Cwd: "/", StartTime: started},
 		{Port: 8080, Protocol: "tcp", Address: addr("0.0.0.0"), User: "root", PID: 201, ProcessName: "nginx", Cwd: "/", StartTime: started},
@@ -114,7 +116,7 @@ func TestProcScannerMissingTCP(t *testing.T) {
 func equalListener(a, b Listener) bool {
 	return a.Port == b.Port && a.Protocol == b.Protocol && a.Address == b.Address &&
 		a.PID == b.PID && a.ProcessName == b.ProcessName && a.Cwd == b.Cwd &&
-		a.User == b.User && a.StartTime.Equal(b.StartTime)
+		a.User == b.User && a.StartTime.Equal(b.StartTime) && slices.Equal(a.Command, b.Command)
 }
 
 func copyFixture(t *testing.T, name, dst string) {

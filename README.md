@@ -16,7 +16,8 @@
 ## Features
 
 - **One command, no flags to remember:** `peek` lists everything that's listening.
-- **Answers "who's on port 3000?"** with the process, PID, bind address, working directory and uptime.
+- **Answers "who's on port 3000?"** with the process, PID, bind address, working directory and uptime. For interpreters it also names the script, so you see `node (vite)` or `python3 (manage.py)` instead of a column of `node`s.
+- **Interactive mode:** `peek -i` opens a live view that refreshes every second. Pick a row and press `x` to stop it.
 - **Frees a port safely:** `peek kill 3000` asks first, sends SIGTERM and checks that the process actually exited.
 - **Knows about Docker:** ports published by containers show the container name, and `peek kill` stops the container instead of breaking Docker's proxy.
 - **Shows exposure at a glance:** binds reachable from other machines (`0.0.0.0`, `::`) are highlighted differently from local-only ones (`127.0.0.1`, `::1`).
@@ -57,6 +58,9 @@ peek kill 3000          # stop the process on port 3000 (asks for confirmation)
 peek kill 3000 --yes    # don't ask
 peek kill 3000 --force  # send SIGKILL instead of SIGTERM
 
+peek -i                 # live view: browse ports and stop processes
+peek -i 3000-3999       # live view of a port range
+
 peek --json             # machine-readable output
 peek --version
 peek --help
@@ -69,15 +73,31 @@ Flags can go before or after the ports, so `peek kill 3000 -f -y` works too.
 | Column  | Meaning |
 |---------|---------|
 | PORT    | The listening TCP port |
-| PROCESS | Process name (`-` if it belongs to another user and you aren't root) |
+| PROCESS | Process name, plus the script or module for interpreters like `node`, `python` or `java` (`-` if it belongs to another user and you aren't root) |
 | PID     | Process ID |
-| ADDRESS | Bind address: amber when exposed to the network, green when local-only |
+| ADDRESS | Bind addresses: amber when exposed to the network, green when local-only |
 | CWD     | The process's working directory, with your home shown as `~` |
 | UPTIME  | How long the process has been running |
 
-A socket shared by several processes (for example a pre-forking web server) shows one row per process.
+A process listening on the same port on several addresses (such as `127.0.0.1` and `::1`) gets one row listing all of them. A socket shared by several processes (for example a pre-forking web server) shows one row per process.
 
 Colors adapt to light and dark terminals. They're switched off automatically when output isn't a terminal or when [`NO_COLOR`](https://no-color.org) is set.
+
+### Interactive mode
+
+`peek -i` (or `--interactive`) opens a full-screen view that rescans every second. Ports that just opened are marked with `+`, and ports that just closed stay on screen dimmed for a few seconds. The line under the table shows the selected process's full command line.
+
+| Key | Action |
+|-----|--------|
+| `↑` `↓` / `j` `k` | Move the selection |
+| `PgUp` `PgDn`, `g` `G` | Jump by a page, or to the top or bottom |
+| `x` | Stop the selected process (SIGTERM) or Docker container, after you confirm |
+| `X` | Force kill it (SIGKILL, or `docker kill`) after you confirm |
+| `/` | Filter by port, process, command, directory, address or user; `enter` applies the filter and `esc` clears it |
+| `r` | Rescan now |
+| `q` / `Ctrl+C` | Quit |
+
+Stopping works the same way as `peek kill`: peek waits for the process to exit and reports an error if it didn't.
 
 ### Docker containers
 
@@ -110,6 +130,7 @@ $ peek 3000 --json
     "address": "127.0.0.1",
     "pid": 48213,
     "process": "node",
+    "command": ["node", "server.js"],
     "cwd": "/home/dev/code/webapp",
     "start_time": "2026-10-07T13:01:42+02:00",
     "user": "dev"
@@ -117,7 +138,7 @@ $ peek 3000 --json
 ]
 ```
 
-Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
+JSON has one entry per socket, so a process listening on both `127.0.0.1` and `::1` appears twice. Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
 
 ### Exit codes
 
@@ -145,12 +166,11 @@ peek 5432 >/dev/null || echo "start the database first"
 
 `peek` doesn't shell out to `lsof`, `ss` or `netstat`; it asks the kernel directly.
 
-- **Linux:** it reads `/proc/net/tcp` and `/proc/net/tcp6` for sockets in the LISTEN state, maps each socket's inode to processes by scanning `/proc/<pid>/fd`, and reads each process's name, working directory and start time from `/proc/<pid>`.
-- **macOS:** it uses libproc (`proc_pidinfo` and `proc_pidfdinfo`), the same interface `lsof` uses. It calls libproc without cgo, so the binary stays static.
+- **Linux:** it reads `/proc/net/tcp` and `/proc/net/tcp6` for sockets in the LISTEN state, maps each socket's inode to processes by scanning `/proc/<pid>/fd`, and reads each process's name, command line, working directory and start time from `/proc/<pid>`.
+- **macOS:** it uses libproc (`proc_pidinfo` and `proc_pidfdinfo`), the same interface `lsof` uses, and the `kern.procargs2` sysctl for command lines. It calls libproc without cgo, so the binary stays static.
 
 ## Roadmap
 
-- `peek --watch`: a live-refreshing view
 - Windows support
 - UDP sockets
 

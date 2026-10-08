@@ -3,6 +3,7 @@ package scan
 import (
 	"encoding/binary"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 )
@@ -126,5 +127,23 @@ func TestParsePIDs(t *testing.T) {
 	got := parsePIDs(b)
 	if len(got) != 2 || got[0] != 1 || got[1] != 4242 {
 		t.Errorf("got %v, want [1 4242]", got)
+	}
+}
+
+func TestParseProcArgs2(t *testing.T) {
+	buf := []byte{3, 0, 0, 0}
+	buf = append(buf, "/usr/local/bin/node\x00\x00\x00\x00"...)
+	buf = append(buf, "node\x00server.js\x00--port=3000\x00"...)
+	buf = append(buf, "HOME=/Users/dev\x00"...)
+
+	got := parseProcArgs2(buf)
+	want := []string{"node", "server.js", "--port=3000"}
+	if !slices.Equal(got, want) {
+		t.Errorf("parseProcArgs2 = %q, want %q", got, want)
+	}
+	for _, short := range [][]byte{nil, {1, 0}, {1, 0, 0, 0, 'x'}} {
+		if got := parseProcArgs2(short); got != nil {
+			t.Errorf("parseProcArgs2(%q) = %q, want nil", short, got)
+		}
 	}
 }

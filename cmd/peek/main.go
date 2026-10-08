@@ -6,14 +6,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/aaron03EM/peek/internal/docker"
 	"github.com/aaron03EM/peek/internal/kill"
 	"github.com/aaron03EM/peek/internal/scan"
+	"github.com/aaron03EM/peek/internal/tui"
 	"github.com/aaron03EM/peek/internal/ui"
 )
 
@@ -28,6 +32,8 @@ const (
 	killWait = 3 * time.Second
 	// containerStopTimeout covers Docker's default 10s stop grace period.
 	containerStopTimeout = 30 * time.Second
+	// refreshInterval is how often the interactive view rescans.
+	refreshInterval = time.Second
 )
 
 func main() {
@@ -49,18 +55,64 @@ func run(args []string) int {
 		return exitOK
 	}
 
-	all, err := scan.New().Scan()
+	if cfg.interactive {
+		return runInteractive(cfg)
+	}
+
+	matched, dockerClient, err := listen(cfg.ranges)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "peek: %v\n", err)
 		return exitNotFound
 	}
-	matched := scan.Filter(all, cfg.ranges)
-	dockerClient := docker.Enrich(matched)
 
 	if cfg.kill {
 		return runKill(cfg, matched, dockerClient)
 	}
 	return runList(cfg, matched)
+}
+
+// listen scans for listeners on the given ports and names the Docker
+// containers among them. The client is nil if Docker isn't needed or reachable.
+func listen(ranges []scan.PortRange) ([]scan.Listener, *docker.Client, error) {
+	all, err := scan.New().Scan()
+	if err != nil {
+		return nil, nil, err
+	}
+	matched := scan.Filter(all, ranges)
+	return matched, docker.Enrich(matched), nil
+}
+
+func runInteractive(cfg config) int {
+	if !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
+		fmt.Fprintln(os.Stderr, "peek: --interactive needs a terminal")
+		return exitUsage
+	}
+	home, _ := os.UserHomeDir()
+	err := tui.Run(tui.Config{
+		Ranges:   cfg.ranges,
+		Interval: refreshInterval,
+		Home:     home,
+		Root:     os.Geteuid() == 0,
+		Scan: func() ([]scan.Listener, error) {
+			ls, _, err := listen(cfg.ranges)
+			return ls, err
+		},
+		Stop: func(t kill.Target, force bool) error {
+			opts := killOptions(force, docker.Connect())
+			opts.Yes, opts.Out = true, io.Discard
+			opts.ForceHint = "press X to send SIGKILL"
+			return kill.Run([]kill.Target{t}, opts)
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "peek: %v\n", err)
+		return exitNotFound
+	}
+	return exitOK
+}
+
+func isTerminal(f *os.File) bool {
+	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }
 
 func runList(cfg config, ls []scan.Listener) int {
@@ -105,9 +157,25 @@ func runKill(cfg config, ls []scan.Listener, dc *docker.Client) int {
 		return exitNotFound
 	}
 
+	opts := killOptions(cfg.force, dc)
+	opts.Yes = cfg.yes
+	err := kill.Run(targets, opts)
+	switch {
+	case errors.Is(err, kill.ErrAborted):
+		fmt.Println("Aborted.")
+		return exitNotFound
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "peek: %v\n", err)
+		return exitNotFound
+	}
+	return exitOK
+}
+
+// killOptions returns options for kill.Run that prompt on the terminal. dc
+// stops containers; without it, stopping one reports that Docker is unreachable.
+func killOptions(force bool, dc *docker.Client) kill.Options {
 	opts := kill.Options{
-		Force: cfg.force,
-		Yes:   cfg.yes,
+		Force: force,
 		Wait:  killWait,
 		In:    os.Stdin,
 		Out:   os.Stdout,
@@ -119,16 +187,7 @@ func runKill(cfg config, ls []scan.Listener, dc *docker.Client) int {
 			return dc.Stop(ctx, id, force)
 		}
 	}
-	err := kill.Run(targets, opts)
-	switch {
-	case errors.Is(err, kill.ErrAborted):
-		fmt.Println("Aborted.")
-		return exitNotFound
-	case err != nil:
-		fmt.Fprintf(os.Stderr, "peek: %v\n", err)
-		return exitNotFound
-	}
-	return exitOK
+	return opts
 }
 
 // version is set at release build time with -ldflags "-X main.version=...".
@@ -150,7 +209,7 @@ func nothingListening(ranges []scan.PortRange) string {
 	if len(ranges) == 0 {
 		return "Nothing is listening."
 	}
-	return "Nothing is listening on " + describePorts(ranges)
+	return "Nothing is listening on " + scan.DescribePorts(ranges)
 }
 
 func hasHiddenOwners(ls []scan.Listener) bool {

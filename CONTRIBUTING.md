@@ -55,6 +55,7 @@ internal/scan/        Scanner interface, Listener type and per-OS implementation
   testdata/           fixture files for the /proc parsers
 internal/docker/      names containers that publish ports, stops them via the API
 internal/ui/          table and JSON rendering
+internal/tui/         interactive mode (peek -i), built with Bubble Tea
 internal/kill/        signalling, confirmation and waiting for exit
 docs/demo.svg         terminal screenshot used in the README
 install.sh            installer used by `curl ... | sh`

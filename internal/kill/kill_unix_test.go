@@ -64,6 +64,11 @@ func TestRunIgnoredTermNeedsForce(t *testing.T) {
 		t.Fatalf("got %v, want a still-running error suggesting --force", err)
 	}
 
+	err = Run([]Target{target}, Options{Yes: true, Wait: 200 * time.Millisecond, Out: &out, ForceHint: "press X to send SIGKILL"})
+	if err == nil || !strings.HasSuffix(err.Error(), "; press X to send SIGKILL") {
+		t.Fatalf("got %v, want the custom hint", err)
+	}
+
 	err = Run([]Target{target}, Options{Yes: true, Force: true, Wait: 2 * time.Second, Out: &out})
 	if err != nil {
 		t.Fatalf("--force: %v", err)
