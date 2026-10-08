@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,8 @@ type testModel struct {
 	*model
 	clock   time.Time
 	stopped []kill.Target
+	opened  []string
+	copied  []string
 }
 
 func newTestModel(t *testing.T) *testModel {
@@ -38,6 +41,15 @@ func newTestModel(t *testing.T) *testModel {
 			tm.stopped = append(tm.stopped, target)
 			return nil
 		},
+		Open: func(url string) error {
+			tm.opened = append(tm.opened, url)
+			return nil
+		},
+		Copy: func(text string) error {
+			tm.copied = append(tm.copied, text)
+			return nil
+		},
+		Home: "/home/dev",
 	}, ui.NewRenderer(&bytes.Buffer{}, false))
 	m.now = func() time.Time { return tm.clock }
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -59,12 +71,30 @@ func (tm *testModel) press(keys ...string) tea.Cmd {
 				"up": tea.KeyUp, "down": tea.KeyDown, "enter": tea.KeyEnter,
 				"esc": tea.KeyEsc, "backspace": tea.KeyBackspace,
 			}[k]}
+		case "?":
+			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
 		default:
 			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 		}
 		_, cmd = tm.Update(msg)
 	}
 	return cmd
+}
+
+// run executes cmd, including every command in a batch, and feeds the
+// resulting messages to the model. Commands those messages return aren't run.
+func (tm *testModel) run(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			tm.run(c)
+		}
+		return
+	}
+	tm.Update(msg)
 }
 
 // selected returns the port of the selected row.
@@ -120,7 +150,7 @@ func TestStopAsksForConfirmation(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirming should return a command that stops the process")
 	}
-	tm.Update(cmd())
+	tm.run(cmd)
 	if len(tm.stopped) != 1 || tm.stopped[0].PID != 4242 {
 		t.Fatalf("stopped %+v, want PID 4242", tm.stopped)
 	}
@@ -233,4 +263,255 @@ func TestViewFitsScreenWhenScrolling(t *testing.T) {
 			t.Fatalf("selected row scrolled out of view:\n%s", view)
 		}
 	}
+}
+
+// order returns the ports of the displayed rows, top to bottom.
+func (tm *testModel) order() []uint16 {
+	var ports []uint16
+	for _, e := range tm.entries() {
+		ports = append(ports, e.row[0].Port)
+	}
+	return ports
+}
+
+func TestSort(t *testing.T) {
+	tm := newTestModel(t)
+	redis := listener(6379, 1, "redis-server")
+	redis.StartTime = start.Add(-72 * time.Hour)
+	vite := listener(5173, 2, "node")
+	vite.StartTime = start.Add(-time.Minute)
+	db := scan.Listener{Port: 5432, Address: netip.MustParseAddr("0.0.0.0"), Container: "Webapp-db", ContainerID: "abc"}
+	db.StartTime = start.Add(-time.Hour)
+	hidden := scan.Listener{Port: 631, Address: netip.MustParseAddr("127.0.0.1"), User: "root"}
+	tm.scan(hidden, vite, db, redis)
+
+	steps := []struct {
+		key   string
+		want  []uint16
+		title string
+	}{
+		{"", []uint16{631, 5173, 5432, 6379}, ""},
+		{"S", []uint16{6379, 5432, 5173, 631}, "sorted by port, reversed"},
+		{"S", []uint16{631, 5173, 5432, 6379}, ""},
+		// Case-insensitive; the hidden owner has no name and goes last.
+		{"s", []uint16{5173, 6379, 5432, 631}, "sorted by process"},
+		{"S", []uint16{5432, 6379, 5173, 631}, "sorted by process, reversed"},
+		{"S", []uint16{5173, 6379, 5432, 631}, "sorted by process"},
+		// Newest first; the unknown start time goes last.
+		{"s", []uint16{5173, 5432, 6379, 631}, "sorted by uptime"},
+		{"S", []uint16{6379, 5432, 5173, 631}, "sorted by uptime, reversed"},
+		{"S", []uint16{5173, 5432, 6379, 631}, "sorted by uptime"},
+		{"s", []uint16{631, 5173, 5432, 6379}, ""},
+	}
+	for _, st := range steps {
+		if st.key != "" {
+			tm.press(st.key)
+		}
+		if got := tm.order(); !slices.Equal(got, st.want) {
+			t.Errorf("after %q: order %v, want %v", st.key, got, st.want)
+		}
+		title := strings.SplitN(tm.View(), "\n", 2)[0]
+		if st.title == "" && strings.Contains(title, "sorted") {
+			t.Errorf("after %q: default order shouldn't be in the title: %q", st.key, title)
+		}
+		if st.title != "" && !strings.Contains(title, st.title) {
+			t.Errorf("after %q: title %q, want it to contain %q", st.key, title, st.title)
+		}
+	}
+}
+
+func TestSortKeepsSelection(t *testing.T) {
+	tm := newTestModel(t)
+	a := listener(3000, 1, "zsh")
+	b := listener(4000, 2, "api")
+	c := listener(5000, 3, "node")
+	tm.scan(a, b, c)
+	tm.press("down") // 4000 api
+	tm.press("s")    // by process: api, node, zsh
+	if got := tm.selected(); got != 4000 {
+		t.Errorf("selected %d after sorting, want 4000", got)
+	}
+	if got := tm.order(); !slices.Equal(got, []uint16{4000, 5000, 3000}) {
+		t.Errorf("order %v, want [4000 5000 3000]", got)
+	}
+}
+
+func TestDetailPanel(t *testing.T) {
+	tm := newTestModel(t)
+	next := listener(3000, 48213, "node")
+	next.Command = []string{"node", "/home/dev/code/webapp/node_modules/.bin/next", "dev"}
+	next.Cwd = "/home/dev/code/webapp"
+	next.StartTime = start.Add(-(2*time.Hour + 14*time.Minute))
+	next.Connections = 3
+	v6 := next
+	v6.Address = netip.MustParseAddr("::1")
+	tm.scan(next, v6, listener(8080, 2, "nginx"))
+
+	tm.press("enter")
+	if tm.mode != modeDetail {
+		t.Fatal("enter should open the detail panel")
+	}
+	view := tm.View()
+	for _, want := range []string{
+		"╭─ node · PID 48213", "3000 on 127.0.0.1, ::1 · local only",
+		"node /home/dev/code/webapp/node_modules/.bin/next dev", "~/code/webapp",
+		"2h14m ago", "user      dev", "3 connected", "esc back",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("panel missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "nginx") {
+		t.Errorf("the panel replaces the table:\n%s", view)
+	}
+
+	tm.press("down")
+	if !strings.Contains(tm.View(), "╭─ nginx · PID 2") {
+		t.Errorf("moving the selection should switch the panel:\n%s", tm.View())
+	}
+	tm.press("esc")
+	if tm.mode != modeList || !strings.Contains(tm.View(), "PORT") {
+		t.Errorf("esc should return to the list:\n%s", tm.View())
+	}
+}
+
+func TestOpenAndCopy(t *testing.T) {
+	tm := newTestModel(t)
+	tm.scan(listener(3000, 1, "node"))
+	tm.run(tm.press("o"))
+	tm.run(tm.press("c"))
+	if !slices.Equal(tm.opened, []string{"http://localhost:3000"}) {
+		t.Errorf("opened %q", tm.opened)
+	}
+	if !slices.Equal(tm.copied, []string{"http://localhost:3000"}) {
+		t.Errorf("copied %q", tm.copied)
+	}
+	if !strings.Contains(tm.View(), "✓ Copied http://localhost:3000") {
+		t.Errorf("expected a confirmation:\n%s", tm.View())
+	}
+}
+
+func TestBrowseURL(t *testing.T) {
+	row := func(addrs ...string) ui.Row {
+		var r ui.Row
+		for _, a := range addrs {
+			r = append(r, scan.Listener{Port: 8080, Address: netip.MustParseAddr(a)})
+		}
+		return r
+	}
+	tests := []struct {
+		row  ui.Row
+		want string
+	}{
+		{row("127.0.0.1"), "http://localhost:8080"},
+		{row("::1"), "http://localhost:8080"},
+		{row("0.0.0.0"), "http://localhost:8080"},
+		{row("192.168.1.20"), "http://192.168.1.20:8080"},
+		{row("fd00::5"), "http://[fd00::5]:8080"},
+		{row("192.168.1.20", "127.0.0.1"), "http://localhost:8080"},
+	}
+	for _, tt := range tests {
+		if got := browseURL(tt.row); got != tt.want {
+			t.Errorf("browseURL(%v) = %q, want %q", tt.row[0].Address, got, tt.want)
+		}
+	}
+}
+
+func TestHelp(t *testing.T) {
+	tm := newTestModel(t)
+	tm.scan(listener(3000, 1, "node"))
+	tm.press("?")
+	if !strings.Contains(tm.View(), "open the port in your browser") {
+		t.Fatalf("expected the key reference:\n%s", tm.View())
+	}
+	tm.press("j")
+	if tm.mode != modeList {
+		t.Error("any key should close the help")
+	}
+}
+
+func TestMouse(t *testing.T) {
+	tm := newTestModel(t)
+	tm.scan(listener(3000, 1, "node"), listener(5432, 2, "postgres"), listener(8080, 3, "nginx"))
+	tm.View()
+	click := func(y int) {
+		tm.Update(tea.MouseMsg{X: 10, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	}
+
+	click(firstRowLine + 2)
+	if tm.selected() != 8080 || tm.mode != modeList {
+		t.Fatalf("clicking the third row selected %d (mode %d)", tm.selected(), tm.mode)
+	}
+	click(firstRowLine + 2)
+	if tm.mode != modeDetail {
+		t.Error("clicking the selected row should open its details")
+	}
+	tm.press("esc")
+	click(firstRowLine + 10) // below the rows
+	if tm.selected() != 8080 {
+		t.Errorf("clicking empty space changed the selection to %d", tm.selected())
+	}
+	tm.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	if tm.selected() != 5432 {
+		t.Errorf("wheel up selected %d, want 5432", tm.selected())
+	}
+}
+
+func TestTitleSummarizesExposure(t *testing.T) {
+	tm := newTestModel(t)
+	public := listener(8080, 3, "nginx")
+	public.Address = netip.MustParseAddr("0.0.0.0")
+	db := scan.Listener{Port: 5432, Address: netip.MustParseAddr("0.0.0.0"), Container: "db", ContainerID: "abc"}
+	tm.scan(listener(3000, 1, "node"), public, db)
+	title := strings.SplitN(tm.View(), "\n", 2)[0]
+	if !strings.Contains(title, "3 listening · 2 exposed · 1 docker") {
+		t.Errorf("title = %q", title)
+	}
+}
+
+func TestSpinnerWhileStopping(t *testing.T) {
+	tm := newTestModel(t)
+	tm.scan(listener(3000, 4242, "node"))
+	tm.press("x")
+	tm.press("y") // the stop command isn't run, so it stays in progress
+	footer := lastLine(tm.View())
+	if !strings.Contains(footer, spinFrames[0]+" Stopping node (PID 4242)") {
+		t.Fatalf("footer = %q", footer)
+	}
+	tm.Update(spinMsg{})
+	if !strings.Contains(lastLine(tm.View()), spinFrames[1]) {
+		t.Errorf("spinner didn't advance: %q", lastLine(tm.View()))
+	}
+}
+
+func TestFormatStart(t *testing.T) {
+	now := time.Date(2026, 10, 8, 15, 0, 0, 0, time.Local)
+	tests := []struct {
+		t    time.Time
+		want string
+	}{
+		{time.Date(2026, 10, 8, 9, 14, 0, 0, time.Local), "today 09:14"},
+		{time.Date(2026, 10, 7, 18, 2, 0, 0, time.Local), "yesterday 18:02"},
+		{time.Date(2026, 10, 3, 11, 20, 0, 0, time.Local), "Oct 3 11:20"},
+		{time.Date(2025, 12, 24, 8, 0, 0, 0, time.Local), "Dec 24 2025"},
+	}
+	for _, tt := range tests {
+		if got := formatStart(tt.t, now); got != tt.want {
+			t.Errorf("formatStart(%v) = %q, want %q", tt.t, got, tt.want)
+		}
+	}
+}
+
+func TestWrap(t *testing.T) {
+	got := wrap("abcdefghij", 4, 2)
+	if !slices.Equal(got, []string{"abcd", "efg…"}) {
+		t.Errorf("wrap = %q", got)
+	}
+	if got := wrap("short", 10, 2); !slices.Equal(got, []string{"short"}) {
+		t.Errorf("wrap = %q", got)
+	}
+}
+
+func lastLine(s string) string {
+	return s[strings.LastIndexByte(s, '\n')+1:]
 }

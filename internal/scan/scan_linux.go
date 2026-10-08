@@ -40,7 +40,7 @@ type procInfo struct {
 }
 
 func (s *procScanner) Scan() ([]Listener, error) {
-	sockets, err := s.readSockets()
+	sockets, established, err := s.readSockets()
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +63,9 @@ func (s *procScanner) Scan() ([]Listener, error) {
 			Protocol: sock.Protocol,
 			Address:  sock.Address,
 			User:     s.lookupUser(sock.UID),
+			// Counted per port: a connection to 127.0.0.1:3000 is attributed
+			// to every listener on port 3000.
+			Connections: established[sock.Port],
 		}
 		pids := owners[sock.Inode]
 		if len(pids) == 0 {
@@ -88,10 +91,12 @@ func (s *procScanner) Scan() ([]Listener, error) {
 	return out, nil
 }
 
-// readSockets returns listening sockets from /proc/net/tcp and tcp6. The tcp6
-// table is optional because it is absent when IPv6 is disabled.
-func (s *procScanner) readSockets() ([]socketEntry, error) {
+// readSockets returns listening sockets from /proc/net/tcp and tcp6, and the
+// number of established connections per local port. The tcp6 table is
+// optional because it is absent when IPv6 is disabled.
+func (s *procScanner) readSockets() ([]socketEntry, map[uint16]int, error) {
 	var all []socketEntry
+	established := make(map[uint16]int)
 	for _, t := range []struct {
 		proto    string
 		optional bool
@@ -102,16 +107,19 @@ func (s *procScanner) readSockets() ([]socketEntry, error) {
 			if t.optional && errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			return nil, fmt.Errorf("reading socket table: %w", err)
+			return nil, nil, fmt.Errorf("reading socket table: %w", err)
 		}
-		entries, err := parseProcNet(f, t.proto, s.order)
+		entries, conns, err := parseProcNet(f, t.proto, s.order)
 		f.Close()
 		if err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
+			return nil, nil, fmt.Errorf("parsing %s: %w", path, err)
 		}
 		all = append(all, entries...)
+		for port, n := range conns {
+			established[port] += n
+		}
 	}
-	return all, nil
+	return all, established, nil
 }
 
 // socketOwners maps each wanted socket inode to the PIDs holding it open.

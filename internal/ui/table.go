@@ -196,12 +196,12 @@ func rowCells(row Row, st styles, o Options) [numCols]cell {
 
 	c[colCwd] = cell{text: unknown, style: st.dim}
 	if l.Cwd != "" {
-		c[colCwd] = cell{text: tildify(l.Cwd, o.Home), style: st.plain}
+		c[colCwd] = cell{text: Tildify(l.Cwd, o.Home), style: st.plain}
 	}
 
 	c[colUptime] = cell{text: unknown, style: st.dim}
 	if !l.StartTime.IsZero() {
-		c[colUptime] = cell{text: formatUptime(o.Now.Sub(l.StartTime)), style: st.dim}
+		c[colUptime] = cell{text: FormatUptime(o.Now.Sub(l.StartTime)), style: st.dim}
 	}
 	return c
 }

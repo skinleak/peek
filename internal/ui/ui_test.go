@@ -22,8 +22,8 @@ func TestTildify(t *testing.T) {
 		{"/srv/app", "/", "/srv/app"},
 	}
 	for _, tt := range tests {
-		if got := tildify(tt.path, tt.home); got != tt.want {
-			t.Errorf("tildify(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
+		if got := Tildify(tt.path, tt.home); got != tt.want {
+			t.Errorf("Tildify(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
 		}
 	}
 }
@@ -43,8 +43,8 @@ func TestFormatUptime(t *testing.T) {
 		{5*24*time.Hour + 4*time.Hour + 59*time.Minute, "5d4h"},
 	}
 	for _, tt := range tests {
-		if got := formatUptime(tt.d); got != tt.want {
-			t.Errorf("formatUptime(%v) = %q, want %q", tt.d, got, tt.want)
+		if got := FormatUptime(tt.d); got != tt.want {
+			t.Errorf("FormatUptime(%v) = %q, want %q", tt.d, got, tt.want)
 		}
 	}
 }

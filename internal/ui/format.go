@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// tildify replaces a leading home directory in path with "~".
-func tildify(path, home string) string {
+// Tildify replaces a leading home directory in path with "~".
+func Tildify(path, home string) string {
 	if home == "" || home == "/" {
 		return path
 	}
@@ -20,9 +20,9 @@ func tildify(path, home string) string {
 	return path
 }
 
-// formatUptime renders a duration compactly with at most two units:
+// FormatUptime renders a duration compactly with at most two units:
 // "42s", "7m", "3h12m", "5d4h".
-func formatUptime(d time.Duration) string {
+func FormatUptime(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}

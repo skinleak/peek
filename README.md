@@ -85,17 +85,30 @@ Colors adapt to light and dark terminals. They're switched off automatically whe
 
 ### Interactive mode
 
-`peek -i` (or `--interactive`) opens a full-screen view that rescans every second. Ports that just opened are marked with `+`, and ports that just closed stay on screen dimmed for a few seconds. The line under the table shows the selected process's full command line.
+`peek -i` (or `--interactive`) opens a full-screen view that rescans every second. The title counts the listening ports and how many are exposed to the network. Ports that just opened are marked with `+`, and ports that just closed stay on screen dimmed for a few seconds. The line under the table shows the selected process's full command line.
+
+Press `enter` for a detail panel with everything peek knows about the selected port: its bind addresses, full command line, working directory, start time, user and how many clients are connected right now. From the list or the panel, `o` opens the port in your browser and `c` copies its URL.
 
 | Key | Action |
 |-----|--------|
 | `↑` `↓` / `j` `k` | Move the selection |
 | `PgUp` `PgDn`, `g` `G` | Jump by a page, or to the top or bottom |
+| `enter` | Show or hide the detail panel for the selected port |
+| `o` | Open the port in your browser (`http://localhost:<port>`) |
+| `c` | Copy its URL to the clipboard |
 | `x` | Stop the selected process (SIGTERM) or Docker container, after you confirm |
 | `X` | Force kill it (SIGKILL, or `docker kill`) after you confirm |
 | `/` | Filter by port, process, command, directory, address or user; `enter` applies the filter and `esc` clears it |
+| `s` | Change the sort order: port, process name, or uptime (newest first) |
+| `S` | Reverse the sort order |
 | `r` | Rescan now |
+| `?` | Show all keys |
+| `esc` | Go back from the detail panel, or clear the filter |
 | `q` / `Ctrl+C` | Quit |
+
+You can also use the mouse: click a row to select it, click it again to open its details, and scroll with the wheel. Most terminals still let you select text by holding `Shift`.
+
+Copying uses `pbcopy` on macOS and `wl-copy`, `xclip` or `xsel` on Linux. Without them, for example over SSH, peek asks the terminal to copy instead (OSC 52), which most modern terminals support.
 
 Stopping works the same way as `peek kill`: peek waits for the process to exit and reports an error if it didn't.
 
@@ -133,12 +146,13 @@ $ peek 3000 --json
     "command": ["node", "server.js"],
     "cwd": "/home/dev/code/webapp",
     "start_time": "2026-10-07T13:01:42+02:00",
-    "user": "dev"
+    "user": "dev",
+    "connections": 2
   }
 ]
 ```
 
-JSON has one entry per socket, so a process listening on both `127.0.0.1` and `::1` appears twice. Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
+`connections` is the number of established connections to the port that peek can see, which on macOS means connections held by your own processes unless you run it with sudo. JSON has one entry per socket, so a process listening on both `127.0.0.1` and `::1` appears twice. Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
 
 ### Exit codes
 

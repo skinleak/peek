@@ -14,8 +14,11 @@ import (
 	"time"
 )
 
-// tcpListen is the TCP_LISTEN state as printed in /proc/net/tcp.
-const tcpListen = "0A"
+// TCP states as printed in /proc/net/tcp.
+const (
+	tcpEstablished = "01"
+	tcpListen      = "0A"
+)
 
 // userHZ is the tick rate the kernel uses for times exported to userspace
 // (USER_HZ). It is 100 on every mainstream Linux architecture and, unlike the
@@ -32,11 +35,13 @@ type socketEntry struct {
 }
 
 // parseProcNet reads the contents of /proc/net/tcp or /proc/net/tcp6 and
-// returns the sockets in LISTEN state. Addresses are printed by the kernel as
+// returns the sockets in LISTEN state, and the number of established
+// connections per local port. Addresses are printed by the kernel as
 // 32-bit words in host byte order, so order must be the byte order of the
 // machine that produced the data (binary.NativeEndian for the live system).
-func parseProcNet(r io.Reader, protocol string, order binary.ByteOrder) ([]socketEntry, error) {
+func parseProcNet(r io.Reader, protocol string, order binary.ByteOrder) ([]socketEntry, map[uint16]int, error) {
 	var entries []socketEntry
+	established := make(map[uint16]int)
 	sc := bufio.NewScanner(r)
 	for lineNo := 1; sc.Scan(); lineNo++ {
 		if lineNo == 1 {
@@ -47,21 +52,26 @@ func parseProcNet(r io.Reader, protocol string, order binary.ByteOrder) ([]socke
 			continue
 		}
 		if len(fields) < 10 {
-			return nil, fmt.Errorf("%s line %d: expected at least 10 fields, got %d", protocol, lineNo, len(fields))
+			return nil, nil, fmt.Errorf("%s line %d: expected at least 10 fields, got %d", protocol, lineNo, len(fields))
 		}
-		if fields[3] != tcpListen {
-			continue
+		switch fields[3] {
+		case tcpListen:
+			e, err := parseSocketFields(fields, protocol, order)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s line %d: %w", protocol, lineNo, err)
+			}
+			entries = append(entries, e)
+		case tcpEstablished:
+			_, portHex, _ := strings.Cut(fields[1], ":")
+			if port, err := strconv.ParseUint(portHex, 16, 16); err == nil {
+				established[uint16(port)]++
+			}
 		}
-		e, err := parseSocketFields(fields, protocol, order)
-		if err != nil {
-			return nil, fmt.Errorf("%s line %d: %w", protocol, lineNo, err)
-		}
-		entries = append(entries, e)
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("reading %s table: %w", protocol, err)
+		return nil, nil, fmt.Errorf("reading %s table: %w", protocol, err)
 	}
-	return entries, nil
+	return entries, established, nil
 }
 
 func parseSocketFields(fields []string, protocol string, order binary.ByteOrder) (socketEntry, error) {
