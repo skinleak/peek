@@ -89,7 +89,7 @@ func (m *model) portLine(r ui.Row) string {
 	}
 	note := "local only"
 	if exposed {
-		note = "reachable from other machines"
+		note = "exposed to the network"
 	}
 	return m.st.title.Render(strconv.Itoa(int(r[0].Port))) + m.st.dim.Render(" on ") +
 		strings.Join(addrs, m.st.dim.Render(", ")) + m.st.dim.Render(" · "+note)
@@ -120,15 +120,56 @@ func formatStart(t, now time.Time) string {
 	return t.Format("Jan 2 2006")
 }
 
-// wrap breaks s into at most maxRows lines of width columns, ending with
-// "…" if it had to cut.
+// wrap breaks s into at most maxRows lines of width columns at spaces. A
+// word longer than a line, such as a path, is split, after a slash where
+// possible. The last line ends with "…" if s had to be cut.
 func wrap(s string, width, maxRows int) []string {
-	lines := strings.Split(ansi.Hardwrap(s, width, true), "\n")
+	var lines []string
+	var line []rune
+	flush := func() {
+		if len(line) > 0 {
+			lines = append(lines, string(line))
+			line = nil
+		}
+	}
+	for _, word := range strings.Fields(s) {
+		w := []rune(word)
+		for len(w) > width {
+			flush()
+			cut := width
+			if i := lastIndex(w[:width], '/'); i > 0 {
+				cut = i + 1
+			}
+			lines = append(lines, string(w[:cut]))
+			w = w[cut:]
+		}
+		switch {
+		case len(w) == 0:
+		case len(line) == 0:
+			line = w
+		case len(line)+1+len(w) <= width:
+			line = append(append(line, ' '), w...)
+		default:
+			flush()
+			line = w
+		}
+	}
+	flush()
 	if len(lines) > maxRows {
 		lines = lines[:maxRows]
-		lines[maxRows-1] = ansi.Truncate(lines[maxRows-1], width-1, "") + "…"
+		last := []rune(lines[maxRows-1])
+		lines[maxRows-1] = string(last[:min(len(last), width-1)]) + "…"
 	}
 	return lines
+}
+
+func lastIndex(r []rune, c rune) int {
+	for i := len(r) - 1; i >= 0; i-- {
+		if r[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 // box draws lines inside a rounded border of the given width with title

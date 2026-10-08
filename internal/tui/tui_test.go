@@ -503,12 +503,22 @@ func TestFormatStart(t *testing.T) {
 }
 
 func TestWrap(t *testing.T) {
-	got := wrap("abcdefghij", 4, 2)
-	if !slices.Equal(got, []string{"abcd", "efg…"}) {
-		t.Errorf("wrap = %q", got)
+	tests := []struct {
+		s     string
+		width int
+		rows  int
+		want  []string
+	}{
+		{"short", 10, 2, []string{"short"}},
+		{"python3 -m http.server 8765 --bind 0.0.0.0", 29, 4, []string{"python3 -m http.server 8765", "--bind 0.0.0.0"}},
+		{"/tmp/claude-1000/project/scratchpad", 20, 4, []string{"/tmp/claude-1000/", "project/scratchpad"}},
+		{"abcdefghij", 4, 4, []string{"abcd", "efgh", "ij"}},
+		{"one two three four", 7, 2, []string{"one two", "three…"}},
 	}
-	if got := wrap("short", 10, 2); !slices.Equal(got, []string{"short"}) {
-		t.Errorf("wrap = %q", got)
+	for _, tt := range tests {
+		if got := wrap(tt.s, tt.width, tt.rows); !slices.Equal(got, tt.want) {
+			t.Errorf("wrap(%q, %d, %d) = %q, want %q", tt.s, tt.width, tt.rows, got, tt.want)
+		}
 	}
 }
 

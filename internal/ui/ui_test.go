@@ -227,3 +227,91 @@ func TestLinesStylesSelectedRowOnly(t *testing.T) {
 		t.Errorf("only the selected row should have a background:\n%q\n%q", lines[1], lines[2])
 	}
 }
+
+func TestTableDropsColumnsWhenNarrow(t *testing.T) {
+	addr := netip.MustParseAddr
+	ls := []scan.Listener{
+		{Port: 53, Address: addr("127.0.0.53"), User: "systemd-resolve"},
+		{Port: 53, Address: addr("127.0.0.54"), User: "systemd-resolve"},
+		{
+			Port: 8765, Address: addr("0.0.0.0"), PID: 311553, ProcessName: "python3",
+			Command: []string{"python3", "-m", "http.server"}, Cwd: "/home/dev/code/some/project",
+			StartTime: now.Add(-time.Minute),
+		},
+	}
+	render := func(width int) string {
+		var buf bytes.Buffer
+		if err := Table(&buf, ls, Options{Now: now, Home: "/home/dev", Width: width}); err != nil {
+			t.Fatal(err)
+		}
+		return buf.String()
+	}
+	tests := []struct {
+		width int
+		want  string
+	}{
+		{90, "" +
+			"PORT  PROCESS                   PID  ADDRESS                CWD                  UPTIME\n" +
+			"  53  -                           -  127.0.0.53,127.0.0.54  -                    -\n" +
+			"8765  python3 (http.server)  311553  0.0.0.0                ~/code/some/project  1m\n"},
+		// CWD shrinks first, keeping the end of the path.
+		{80, "" +
+			"PORT  PROCESS                   PID  ADDRESS                CWD           UPTIME\n" +
+			"  53  -                           -  127.0.0.53,127.0.0.54  -             -\n" +
+			"8765  python3 (http.server)  311553  0.0.0.0                …ome/project  1m\n"},
+		// Then CWD and UPTIME are hidden...
+		{60, "" +
+			"PORT  PROCESS                   PID  ADDRESS\n" +
+			"  53  -                           -  127.0.0.53,127.0.0.54\n" +
+			"8765  python3 (http.server)  311553  0.0.0.0\n"},
+		// ...then long address lists, before the process loses its script.
+		{48, "" +
+			"PORT  PROCESS                   PID  ADDRESS\n" +
+			"  53  -                           -  127.0.0.53…\n" +
+			"8765  python3 (http.server)  311553  0.0.0.0\n"},
+		// Finally the script; the column shrinks to what's left.
+		{35, "" +
+			"PORT  PROCESS     PID  ADDRESS\n" +
+			"  53  -             -  127.0.0.…\n" +
+			"8765  python3  311553  0.0.0.0\n"},
+	}
+	for _, tt := range tests {
+		got := render(tt.width)
+		if got != tt.want {
+			t.Errorf("width %d:\n got:\n%s\nwant:\n%s", tt.width, got, tt.want)
+		}
+		for _, line := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
+			if w := len([]rune(line)); w > tt.width {
+				t.Errorf("width %d: line is %d wide: %q", tt.width, w, line)
+			}
+		}
+	}
+}
+
+func TestLinesHighlightsMatches(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, true)
+	r.SetColorProfile(termenv.TrueColor)
+	r.SetHasDarkBackground(true)
+	ls := sample()
+	ls[1].Command = []string{"node", "node_modules/.bin/vite"}
+	for _, selected := range []bool{false, true} {
+		lines := Lines(r, GroupRows(ls), Options{Now: now, Highlight: "VIT"}, func(int) RowStyle {
+			return RowStyle{Selected: selected}
+		})
+		// The match background is #854D0E on dark terminals: 133;77;14.
+		const matchBG = "48;2;133;77;14"
+		if strings.Contains(lines[0], matchBG) || strings.Contains(lines[1], matchBG) {
+			t.Errorf("selected=%v: only rows containing the text should be highlighted:\n%q\n%q", selected, lines[0], lines[1])
+		}
+		if !strings.Contains(lines[2], matchBG+"m"+"vit") {
+			t.Errorf("selected=%v: expected \"vit\" in \"(vite)\" highlighted:\n%q", selected, lines[2])
+		}
+	}
+}
+
+func TestPaintWithoutHighlight(t *testing.T) {
+	st := newStyles(NewRenderer(&bytes.Buffer{}, false))
+	if got := paint("node (vite)", st.plain, st.match, "VITE"); got != "node (vite)" {
+		t.Errorf("paint without color = %q", got)
+	}
+}

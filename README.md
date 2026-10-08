@@ -98,13 +98,15 @@ Press `enter` for a detail panel with everything peek knows about the selected p
 | `c` | Copy its URL to the clipboard |
 | `x` | Stop the selected process (SIGTERM) or Docker container, after you confirm |
 | `X` | Force kill it (SIGKILL, or `docker kill`) after you confirm |
-| `/` | Filter by port, process, command, directory, address or user; `enter` applies the filter and `esc` clears it |
+| `/` | Filter by port, process, command, directory, address or user, with matches highlighted; `enter` applies the filter and `esc` clears it |
 | `s` | Change the sort order: port, process name, or uptime (newest first) |
 | `S` | Reverse the sort order |
 | `r` | Rescan now |
 | `?` | Show all keys |
 | `esc` | Go back from the detail panel, or clear the filter |
 | `q` / `Ctrl+C` | Quit |
+
+In narrow terminals peek leaves out the least important details first, such as the CWD and UPTIME columns, instead of wrapping lines.
 
 You can also use the mouse: click a row to select it, click it again to open its details, and scroll with the wheel. Most terminals still let you select text by holding `Shift`.
 

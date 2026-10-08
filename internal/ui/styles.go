@@ -21,6 +21,8 @@ var (
 	Muted   = lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"}
 	// selection is the background of the selected row in interactive mode.
 	selection = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#374151"}
+	// highlight is the background of text matching the filter.
+	highlight = lipgloss.AdaptiveColor{Light: "#FDE68A", Dark: "#854D0E"}
 )
 
 type styles struct {
@@ -30,6 +32,7 @@ type styles struct {
 	local   lipgloss.Style
 	dim     lipgloss.Style
 	plain   lipgloss.Style
+	match   lipgloss.Style
 }
 
 func newStyles(r *lipgloss.Renderer) styles {
@@ -40,6 +43,7 @@ func newStyles(r *lipgloss.Renderer) styles {
 		local:   r.NewStyle().Foreground(Success),
 		dim:     r.NewStyle().Foreground(Muted),
 		plain:   r.NewStyle(),
+		match:   r.NewStyle().Background(highlight).Bold(true),
 	}
 }
 

@@ -71,7 +71,7 @@ func (m *model) list(entries []entry, cur int) []string {
 	for i, e := range entries {
 		rows[i] = e.row
 	}
-	o := ui.Options{Width: max(0, m.width-2), Home: m.cfg.Home, Now: m.now()}
+	o := ui.Options{Width: max(0, m.width-2), Home: m.cfg.Home, Now: m.now(), Highlight: m.filter}
 	lines := ui.Lines(m.render, rows, o, func(i int) ui.RowStyle {
 		return ui.RowStyle{Selected: i == cur, Faded: entries[i].gone}
 	})
@@ -131,7 +131,15 @@ func (m *model) titleLine() string {
 	for _, e := range extra {
 		parts = append(parts, m.st.dim.Render(e))
 	}
-	return m.truncate(" " + m.st.title.Render("peek") + "  " + strings.Join(parts, sep))
+	// Leave out trailing parts that don't fit rather than cutting one off.
+	title := " " + m.st.title.Render("peek") + "  " + parts[0]
+	for _, p := range parts[1:] {
+		if m.width > 0 && lipgloss.Width(title+sep+p) > m.width {
+			break
+		}
+		title += sep + p
+	}
+	return m.truncate(title)
 }
 
 func (m *model) hasHiddenOwners() bool {
@@ -232,23 +240,49 @@ func (m *model) footer() string {
 		}
 		return " " + m.st.ok.Render("✓ "+m.status)
 	}
-	var keys [][2]string
+	var keys []keyHint
 	switch m.mode {
 	case modeHelp:
-		keys = [][2]string{{"any key", "close"}}
+		keys = []keyHint{{"any key", "close", 9}}
 	case modeDetail:
-		keys = [][2]string{{"esc", "back"}, {"o", "open in browser"}, {"c", "copy URL"}, {"x", "stop"}, {"X", "force kill"}, {"q", "quit"}}
+		keys = []keyHint{{"esc", "back", 9}, {"o", "open in browser", 5}, {"c", "copy URL", 3}, {"x", "stop", 6}, {"X", "force kill", 1}, {"q", "quit", 8}}
 	default:
-		keys = [][2]string{{"↑↓", "move"}, {"enter", "details"}, {"o", "open"}, {"x", "stop"}, {"/", "filter"}, {"s", "sort"}, {"?", "help"}, {"q", "quit"}}
+		keys = []keyHint{{"↑↓", "move", 4}, {"enter", "details", 6}, {"o", "open", 3}, {"x", "stop", 5}, {"/", "filter", 2}, {"s", "sort", 1}, {"?", "help", 9}, {"q", "quit", 8}}
 		if m.filter != "" {
-			keys = slices.Insert(keys, 5, [2]string{"esc", "clear filter"})
+			keys = slices.Insert(keys, 5, keyHint{"esc", "clear filter", 7})
 		}
 	}
-	parts := make([]string, len(keys))
-	for i, k := range keys {
-		parts[i] = m.st.key.Render(k[0]) + " " + m.st.dim.Render(k[1])
+	return " " + m.keyHints(keys, m.width-1)
+}
+
+// keyHint is a key shown in the footer. When the footer is too narrow, the
+// hints with the lowest priority are left out first.
+type keyHint struct {
+	key, action string
+	priority    int
+}
+
+func (m *model) keyHints(keys []keyHint, width int) string {
+	const gap = "   "
+	render := func() string {
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = m.st.key.Render(k.key) + " " + m.st.dim.Render(k.action)
+		}
+		return strings.Join(parts, gap)
 	}
-	return " " + strings.Join(parts, "   ")
+	out := render()
+	for width > 0 && lipgloss.Width(out) > width && len(keys) > 1 {
+		lowest := 0
+		for i, k := range keys {
+			if k.priority <= keys[lowest].priority {
+				lowest = i
+			}
+		}
+		keys = slices.Delete(keys, lowest, lowest+1)
+		out = render()
+	}
+	return out
 }
 
 func (m *model) truncate(s string) string {

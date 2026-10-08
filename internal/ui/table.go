@@ -20,6 +20,9 @@ const (
 	columnGap   = "  "
 	unknown     = "-"
 	minCwdWidth = 12
+	// The narrowest PROCESS and ADDRESS get before the table overflows.
+	minProcessWidth = 10
+	minAddressWidth = 9
 )
 
 // Options control table rendering.
@@ -28,6 +31,8 @@ type Options struct {
 	Width int       // maximum line width; 0 means unlimited
 	Home  string    // home directory to abbreviate as "~"
 	Now   time.Time // reference time for uptimes
+	// Highlight marks occurrences of this text in the rows, ignoring case.
+	Highlight string
 }
 
 // DefaultOptions returns options suited to writing to f.
@@ -156,7 +161,7 @@ func Lines(r *lipgloss.Renderer, rows []Row, o Options, style func(i int) RowSty
 	}
 
 	widths := columnWidths(cells)
-	fitCwd(cells, &widths, o.Width)
+	hidden := fit(cells, &widths, o.Width)
 
 	lines := make([]string, len(cells))
 	for i, c := range cells {
@@ -164,7 +169,11 @@ func Lines(r *lipgloss.Renderer, rows []Row, o Options, style func(i int) RowSty
 		if i > 0 && style != nil {
 			rs = style(i - 1)
 		}
-		lines[i] = renderRow(c, widths, st, rs)
+		highlight := o.Highlight
+		if i == 0 {
+			highlight = "" // never in the header
+		}
+		lines[i] = renderRow(c, widths, hidden, st, rs, highlight)
 	}
 	return lines
 }
@@ -216,28 +225,60 @@ func columnWidths(rows [][numCols]cell) [numCols]int {
 	return widths
 }
 
-// fitCwd shrinks the CWD column, the only one with unbounded length, so the
-// table fits within maxWidth. Paths are truncated from the left.
-func fitCwd(rows [][numCols]cell, widths *[numCols]int, maxWidth int) {
+// fit makes the table fit within maxWidth by giving up the least important
+// information first: it shrinks CWD (keeping the end of each path), then
+// hides CWD and UPTIME, then shortens ADDRESS and PROCESS. It returns the
+// columns to hide. A table that still doesn't fit is left as narrow as it gets.
+func fit(rows [][numCols]cell, widths *[numCols]int, maxWidth int) (hidden [numCols]bool) {
 	if maxWidth <= 0 {
-		return
+		return hidden
 	}
-	total := len(columnGap) * (numCols - 1)
-	for _, w := range widths {
-		total += w
+	over := func() int {
+		total := -len(columnGap)
+		for i, w := range widths {
+			if !hidden[i] {
+				total += w + len(columnGap)
+			}
+		}
+		return total - maxWidth
 	}
-	over := total - maxWidth
-	if over <= 0 {
-		return
+	if o := over(); o > 0 {
+		widths[colCwd] = max(minCwdWidth, widths[colCwd]-o)
+		for i := range rows {
+			rows[i][colCwd].text = truncateLeft(rows[i][colCwd].text, widths[colCwd])
+		}
 	}
-	widths[colCwd] = max(minCwdWidth, widths[colCwd]-over)
-	for i := range rows {
-		c := &rows[i][colCwd]
-		c.text = truncateLeft(c.text, widths[colCwd])
+	for _, col := range []int{colCwd, colUptime} {
+		if over() > 0 {
+			hidden[col] = true
+		}
 	}
+	for _, s := range []struct{ col, min int }{{colAddress, minAddressWidth}, {colProcess, minProcessWidth}} {
+		o := over()
+		if o <= 0 {
+			break
+		}
+		limit, used := max(s.min, widths[s.col]-o), 0
+		for i := range rows {
+			rows[i][s.col].shorten(limit)
+			used = max(used, rows[i][s.col].width())
+		}
+		widths[s.col] = used // dropping a suffix may free more than needed
+	}
+	return hidden
 }
 
-func renderRow(row [numCols]cell, widths [numCols]int, st styles, rs RowStyle) string {
+// shorten fits the cell within width, dropping its suffix before cutting
+// its text.
+func (c *cell) shorten(width int) {
+	if c.width() <= width {
+		return
+	}
+	c.suffix = ""
+	c.text = truncateRight(c.text, width)
+}
+
+func renderRow(row [numCols]cell, widths [numCols]int, hidden [numCols]bool, st styles, rs RowStyle, highlight string) string {
 	text, suffix, space := func(c cell) lipgloss.Style { return c.style }, st.dim, st.plain
 	if rs.Faded {
 		text = func(cell) lipgloss.Style { return st.dim }
@@ -249,24 +290,55 @@ func renderRow(row [numCols]cell, widths [numCols]int, st styles, rs RowStyle) s
 		space = space.Background(selection)
 	}
 
+	last := numCols - 1
+	for hidden[last] {
+		last--
+	}
 	var b strings.Builder
 	for i, c := range row {
+		if hidden[i] {
+			continue
+		}
+		if i > 0 {
+			b.WriteString(space.Render(columnGap))
+		}
 		pad := space.Render(strings.Repeat(" ", widths[i]-c.width()))
-		styled := text(c).Render(c.text)
+		styled := paint(c.text, text(c), st.match, highlight)
 		if c.suffix != "" {
-			styled += suffix.Render(c.suffix)
+			styled += paint(c.suffix, suffix, st.match, highlight)
 		}
 		switch {
 		case c.alignRight:
 			b.WriteString(pad + styled)
-		case i == numCols-1 && !rs.Selected:
+		case i == last && !rs.Selected:
 			b.WriteString(styled) // no trailing whitespace
 		default:
 			b.WriteString(styled + pad)
 		}
-		if i < numCols-1 {
-			b.WriteString(space.Render(columnGap))
+	}
+	return b.String()
+}
+
+// paint renders s in style, with every occurrence of highlight (ignoring
+// case) drawn with match laid over it.
+func paint(s string, style, match lipgloss.Style, highlight string) string {
+	lower := strings.ToLower(s)
+	if highlight == "" || len(lower) != len(s) { // lowering changed byte offsets
+		return style.Render(s)
+	}
+	highlight = strings.ToLower(highlight)
+	var b strings.Builder
+	for {
+		i := strings.Index(lower, highlight)
+		if i < 0 {
+			break
 		}
+		end := i + len(highlight)
+		b.WriteString(style.Render(s[:i]) + match.Inherit(style).Render(s[i:end]))
+		s, lower = s[end:], lower[end:]
+	}
+	if s != "" {
+		b.WriteString(style.Render(s))
 	}
 	return b.String()
 }
