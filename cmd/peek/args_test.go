@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skinleak/peek/internal/scan"
 )
@@ -26,6 +27,11 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"kill", "--help"}, config{help: true}},
 		{[]string{"--version"}, config{version: true}},
 		{[]string{"-i"}, config{interactive: true}},
+		{[]string{"wait", "5432"}, config{wait: true, ranges: []scan.PortRange{pr(5432, 5432)}}},
+		{[]string{"wait", "5432", "6379", "--free"}, config{wait: true, free: true, ranges: []scan.PortRange{pr(5432, 5432), pr(6379, 6379)}}},
+		{[]string{"wait", "5432", "--timeout", "30s"}, config{wait: true, timeout: 30 * time.Second, ranges: []scan.PortRange{pr(5432, 5432)}}},
+		{[]string{"wait", "--timeout=2m", "5432"}, config{wait: true, timeout: 2 * time.Minute, ranges: []scan.PortRange{pr(5432, 5432)}}},
+		{[]string{"-t", "1.5", "wait", "5432"}, config{wait: true, timeout: 1500 * time.Millisecond, ranges: []scan.PortRange{pr(5432, 5432)}}},
 		{[]string{"3000-3999", "--interactive"}, config{interactive: true, ranges: []scan.PortRange{pr(3000, 3999)}}},
 	}
 	for _, tt := range tests {
@@ -56,6 +62,14 @@ func TestParseArgsErrors(t *testing.T) {
 		{[]string{"3000", "-y"}, "--yes only applies"},
 		{[]string{"-i", "kill", "3000"}, "--interactive cannot be used with kill"},
 		{[]string{"-i", "--json"}, "--interactive cannot be used with --json"},
+		{[]string{"wait"}, "wait needs a port"},
+		{[]string{"wait", "5432", "--json"}, "wait can't be combined"},
+		{[]string{"wait", "5432", "-y"}, "wait can't be combined"},
+		{[]string{"wait", "5432", "--timeout"}, "--timeout needs a duration"},
+		{[]string{"wait", "5432", "--timeout", "soon"}, `invalid timeout "soon"`},
+		{[]string{"wait", "5432", "-t", "0"}, "must be more than zero"},
+		{[]string{"5432", "--free"}, "--free only applies"},
+		{[]string{"5432", "--timeout", "5s"}, "--timeout only applies"},
 	}
 	for _, tt := range tests {
 		_, err := parseArgs(tt.args)
@@ -67,6 +81,7 @@ func TestParseArgsErrors(t *testing.T) {
 
 func equalConfig(a, b config) bool {
 	return a.kill == b.kill && a.json == b.json && a.interactive == b.interactive &&
+		a.wait == b.wait && a.free == b.free && a.timeout == b.timeout &&
 		a.force == b.force && a.yes == b.yes && a.help == b.help && a.version == b.version &&
 		slices.Equal(a.ranges, b.ranges)
 }

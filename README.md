@@ -21,7 +21,7 @@
 - **Frees a port safely:** `peek kill 3000` asks first, sends SIGTERM and checks that the process actually exited.
 - **Knows about Docker:** ports published by containers show the container name, and `peek kill` stops the container instead of breaking Docker's proxy.
 - **Shows exposure at a glance:** binds reachable from other machines (`0.0.0.0`, `::`) are highlighted differently from local-only ones (`127.0.0.1`, `::1`).
-- **Scriptable:** `--json` output and meaningful exit codes.
+- **Scriptable:** `--json` output, meaningful exit codes, and `peek wait` to block until a port is up (or free).
 - **Tiny and instant:** a single static binary for Linux and macOS, with no config files and no runtime dependencies.
 
 ## Install
@@ -60,6 +60,10 @@ peek kill 3000 --force  # send SIGKILL instead of SIGTERM
 
 peek -i                 # live view: browse ports and stop processes
 peek -i 3000-3999       # live view of a port range
+
+peek wait 5432          # wait until something listens on port 5432
+peek wait 5432 -t 30s   # ...but give up after 30 seconds
+peek wait 3000 --free   # wait until port 3000 is free
 
 peek --json             # machine-readable output
 peek --version
@@ -156,13 +160,27 @@ $ peek 3000 --json
 
 `connections` is the number of established connections to the port that peek can see, which on macOS means connections held by your own processes unless you run it with sudo. JSON has one entry per socket, so a process listening on both `127.0.0.1` and `::1` appears twice. Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
 
+### Waiting for a port
+
+`peek wait` blocks until something is listening on each of the given ports or ranges, so scripts can wait for a service to come up:
+
+```sh
+docker compose up -d db
+peek wait 5432 --timeout 30s && npm run migrate
+```
+
+With `--free` it waits until nothing listens on them anymore, for example before restarting a server on the same port. `-t`/`--timeout` takes a duration like `30s` or `2m`, or a number of seconds; without it, peek waits forever.
+
+In a terminal, peek shows a spinner while it waits. When it's done, it says what it found on stderr (for example `Port 5432 is listening (postgres, PID 812)`) and exits with 0; after a timeout it exits with 1. Nothing goes to stdout, so it's quiet in pipelines.
+
 ### Exit codes
 
 | Code | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | 0    | Success                                                                                   |
-| 1    | Nothing is listening on the requested port(s), the kill was declined, or something failed |
+| 1    | Nothing is listening on the requested port(s), the kill was declined, `peek wait` timed out, or something failed |
 | 2    | Usage error, such as an invalid port or unknown flag                                      |
+| 130  | Interrupted with Ctrl+C                                                                   |
 
 This makes `peek` handy in scripts:
 

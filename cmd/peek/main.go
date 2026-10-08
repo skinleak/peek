@@ -55,6 +55,9 @@ func run(args []string) int {
 		return exitOK
 	}
 
+	if cfg.wait {
+		return runWait(cfg)
+	}
 	if cfg.interactive {
 		return runInteractive(cfg)
 	}
