@@ -26,6 +26,8 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"kill", "--help"}, config{help: true}},
 		{[]string{"--version"}, config{version: true}},
 		{[]string{"-i"}, config{interactive: true}},
+		{[]string{"kill"}, config{kill: true}},
+		{[]string{"kill", "-f"}, config{kill: true, force: true}},
 		{[]string{"3000-3999", "--interactive"}, config{interactive: true, ranges: []scan.PortRange{pr(3000, 3999)}}},
 	}
 	for _, tt := range tests {
@@ -45,7 +47,6 @@ func TestParseArgsErrors(t *testing.T) {
 		args    []string
 		wantErr string
 	}{
-		{[]string{"kill"}, "kill needs a port"},
 		{[]string{"--verbose"}, `unknown flag "--verbose"`},
 		{[]string{"abc"}, `invalid port "abc"`},
 		{[]string{"70000"}, "between 1 and 65535"},

@@ -184,7 +184,7 @@ func rowCells(row Row, st styles, o Options) [numCols]cell {
 	c[colPort] = cell{text: strconv.Itoa(int(l.Port)), style: st.port, alignRight: true}
 
 	c[colProcess] = cell{text: l.ProcessName, style: st.plain}
-	if target := describe(l.ProcessName, l.Command); target != "" {
+	if target := Describe(l.ProcessName, l.Command); target != "" {
 		c[colProcess].suffix = " (" + target + ")"
 	}
 	c[colPID] = cell{text: strconv.Itoa(l.PID), style: st.plain, alignRight: true}
