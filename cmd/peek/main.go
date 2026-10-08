@@ -61,6 +61,11 @@ func run(args []string) int {
 	if cfg.interactive {
 		return runInteractive(cfg)
 	}
+	interactive := isTerminal(os.Stdin) && isTerminal(os.Stdout)
+	if cfg.kill && len(cfg.ranges) == 0 && !interactive {
+		fmt.Fprintln(os.Stderr, "peek: kill needs a port, e.g. 'peek kill 3000'\nRun 'peek --help' for usage.")
+		return exitUsage
+	}
 
 	matched, dockerClient, err := listen(cfg.ranges)
 	if err != nil {
@@ -69,7 +74,7 @@ func run(args []string) int {
 	}
 
 	if cfg.kill {
-		return runKill(cfg, matched, dockerClient)
+		return runKill(cfg, matched, dockerClient, interactive)
 	}
 	return runList(cfg, matched)
 }
@@ -146,15 +151,20 @@ func runList(cfg config, ls []scan.Listener) int {
 	return code
 }
 
-func runKill(cfg config, ls []scan.Listener, dc *docker.Client) int {
+// runKill stops the owners of ls. In a terminal it lets the user pick when
+// no ports were given, or when several processes match and --yes wasn't.
+func runKill(cfg config, ls []scan.Listener, dc *docker.Client, interactive bool) int {
 	if len(ls) == 0 {
 		fmt.Println(nothingListening(cfg.ranges))
 		return exitNotFound
 	}
 
 	targets, hidden := kill.Targets(ls)
-	for _, l := range hidden {
-		fmt.Fprintf(os.Stderr, "peek: can't see which process owns port %d (user %s); try again with sudo\n", l.Port, l.User)
+	pick := interactive && len(targets) > 0 && (len(cfg.ranges) == 0 || (len(targets) > 1 && !cfg.yes))
+	if !pick {
+		for _, l := range hidden {
+			fmt.Fprintf(os.Stderr, "peek: can't see which process owns port %d (user %s); try again with sudo\n", l.Port, l.User)
+		}
 	}
 	if len(targets) == 0 {
 		return exitNotFound
@@ -162,6 +172,19 @@ func runKill(cfg config, ls []scan.Listener, dc *docker.Client) int {
 
 	opts := killOptions(cfg.force, dc)
 	opts.Yes = cfg.yes
+	if pick {
+		home, _ := os.UserHomeDir()
+		chosen, err := tui.Pick(ls, tui.PickOptions{Force: cfg.force, Home: home, Hidden: distinctPorts(hidden)})
+		switch {
+		case errors.Is(err, tui.ErrCancelled):
+			fmt.Println("Aborted.")
+			return exitNotFound
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "peek: %v\n", err)
+			return exitNotFound
+		}
+		targets, opts.Yes = chosen, true // choosing them was the confirmation
+	}
 	err := kill.Run(targets, opts)
 	switch {
 	case errors.Is(err, kill.ErrAborted):
@@ -213,6 +236,16 @@ func nothingListening(ranges []scan.PortRange) string {
 		return "Nothing is listening."
 	}
 	return "Nothing is listening on " + scan.DescribePorts(ranges)
+}
+
+// distinctPorts counts the different ports in ls; a port can have one
+// listener per address.
+func distinctPorts(ls []scan.Listener) int {
+	seen := make(map[uint16]bool)
+	for _, l := range ls {
+		seen[l.Port] = true
+	}
+	return len(seen)
 }
 
 func hasHiddenOwners(ls []scan.Listener) bool {

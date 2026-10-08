@@ -15,7 +15,8 @@ const usage = `peek - see what's listening on your ports, and free them up
 Usage:
   peek [flags]                    list everything listening
   peek <port|range>... [flags]    show listeners on ports, e.g. 3000 or 3000-3999
-  peek kill <port|range>...       terminate the processes on those ports
+  peek kill [<port|range>...]     terminate the processes on those ports; in a
+                                  terminal, pick from a list if there are several
   peek -i [<port|range>...]       live view to browse ports and stop processes
   peek wait <port|range>...       wait until something listens on each, or with
                                   --free until nothing does
@@ -80,10 +81,7 @@ func parseArgs(args []string) (config, error) {
 
 	if len(positional) > 0 && positional[0] == "kill" {
 		cfg.kill = true
-		positional = positional[1:]
-		if len(positional) == 0 {
-			return config{}, errors.New("kill needs a port, e.g. 'peek kill 3000'")
-		}
+		positional = positional[1:] // without ports, run decides: picker or error
 	}
 	if len(positional) > 0 && positional[0] == "wait" {
 		cfg.wait = true

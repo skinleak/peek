@@ -18,7 +18,7 @@
 - **One command, no flags to remember:** `peek` lists everything that's listening.
 - **Answers "who's on port 3000?"** with the process, PID, bind address, working directory and uptime. For interpreters it also names the script, so you see `node (vite)` or `python3 (manage.py)` instead of a column of `node`s.
 - **Interactive mode:** `peek -i` opens a live view that refreshes every second. Pick a row and press `x` to stop it.
-- **Frees a port safely:** `peek kill 3000` asks first, sends SIGTERM and checks that the process actually exited.
+- **Frees a port safely:** `peek kill 3000` asks first, sends SIGTERM and checks that the process actually exited. Plain `peek kill` lets you pick from a list.
 - **Knows about Docker:** ports published by containers show the container name, and `peek kill` stops the container instead of breaking Docker's proxy.
 - **Shows exposure at a glance:** binds reachable from other machines (`0.0.0.0`, `::`) are highlighted differently from local-only ones (`127.0.0.1`, `::1`).
 - **Scriptable:** `--json` output, meaningful exit codes, and `peek wait` to block until a port is up (or free).
@@ -57,6 +57,8 @@ peek 22 8000-8100       # several ports and ranges
 peek kill 3000          # stop the process on port 3000 (asks for confirmation)
 peek kill 3000 --yes    # don't ask
 peek kill 3000 --force  # send SIGKILL instead of SIGTERM
+peek kill               # pick processes to stop from a list
+peek kill 3000-3999     # pick among the processes in a range
 
 peek -i                 # live view: browse ports and stop processes
 peek -i 3000-3999       # live view of a port range
@@ -117,6 +119,21 @@ You can also use the mouse: click a row to select it, click it again to open its
 Copying uses `pbcopy` on macOS and `wl-copy`, `xclip` or `xsel` on Linux. Without them, for example over SSH, peek asks the terminal to copy instead (OSC 52), which most modern terminals support.
 
 Stopping works the same way as `peek kill`: peek waits for the process to exit and reports an error if it didn't.
+
+### Picking what to stop
+
+`peek kill` without a port, or with ports that several processes listen on, shows a list right in your terminal:
+
+```
+Which processes should peek stop?
+> next
+› ○ 3000, 3001  node (next)  48213  2h14m  ~/code/webapp
+ ↑↓ move   space select   ctrl+a all   enter stop it   esc cancel
+```
+
+Type to filter, `space` to select several (`ctrl+a` selects everything shown), and `enter` to stop the selection, or the highlighted process if nothing is selected. `esc` clears the filter, then cancels. Each process or container appears once, with all of its ports. `--force` works as usual, and `--yes` with ports skips the list and stops everything that matches.
+
+Without a terminal, for example in a script, nothing changes: `peek kill 3000-3999` stops everything in the range after confirming (or right away with `--yes`), and `peek kill` without ports is an error.
 
 ### Docker containers
 

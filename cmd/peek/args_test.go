@@ -32,6 +32,8 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"wait", "5432", "--timeout", "30s"}, config{wait: true, timeout: 30 * time.Second, ranges: []scan.PortRange{pr(5432, 5432)}}},
 		{[]string{"wait", "--timeout=2m", "5432"}, config{wait: true, timeout: 2 * time.Minute, ranges: []scan.PortRange{pr(5432, 5432)}}},
 		{[]string{"-t", "1.5", "wait", "5432"}, config{wait: true, timeout: 1500 * time.Millisecond, ranges: []scan.PortRange{pr(5432, 5432)}}},
+		{[]string{"kill"}, config{kill: true}},
+		{[]string{"kill", "-f"}, config{kill: true, force: true}},
 		{[]string{"3000-3999", "--interactive"}, config{interactive: true, ranges: []scan.PortRange{pr(3000, 3999)}}},
 	}
 	for _, tt := range tests {
@@ -51,7 +53,6 @@ func TestParseArgsErrors(t *testing.T) {
 		args    []string
 		wantErr string
 	}{
-		{[]string{"kill"}, "kill needs a port"},
 		{[]string{"--verbose"}, `unknown flag "--verbose"`},
 		{[]string{"abc"}, `invalid port "abc"`},
 		{[]string{"70000"}, "between 1 and 65535"},

@@ -208,8 +208,8 @@ func TestDescribe(t *testing.T) {
 		{"node", []string{"node", "/srv/a-really-long-script-name-for-a-server.js"}, "a-really-long-script-na…"},
 	}
 	for _, tt := range tests {
-		if got := describe(tt.name, tt.args); got != tt.want {
-			t.Errorf("describe(%q, %q) = %q, want %q", tt.name, tt.args, got, tt.want)
+		if got := Describe(tt.name, tt.args); got != tt.want {
+			t.Errorf("Describe(%q, %q) = %q, want %q", tt.name, tt.args, got, tt.want)
 		}
 	}
 }
