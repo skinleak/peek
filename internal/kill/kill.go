@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aaron03EM/peek/internal/scan"
+	"github.com/skinleak/peek/internal/scan"
 )
 
 // ErrAborted is returned when the user declines the confirmation prompt.

@@ -1,7 +1,7 @@
 # peek
 
-[![CI](https://github.com/aaron03EM/peek/actions/workflows/ci.yml/badge.svg)](https://github.com/aaron03EM/peek/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/aaron03EM/peek.svg)](https://pkg.go.dev/github.com/aaron03EM/peek)
+[![CI](https://github.com/skinleak/peek/actions/workflows/ci.yml/badge.svg)](https://github.com/skinleak/peek/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/skinleak/peek.svg)](https://pkg.go.dev/github.com/skinleak/peek)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **See what's listening on your ports, and free them up.**
@@ -29,22 +29,22 @@
 **Homebrew** (macOS and Linux):
 
 ```sh
-brew install aaron03EM/tap/peek
+brew install skinleak/tap/peek
 ```
 
 **Install script** (macOS and Linux). It downloads the latest release, verifies its checksum and installs to `/usr/local/bin`, or `~/.local/bin` if that isn't writable:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/aaron03EM/peek/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/skinleak/peek/main/install.sh | sh
 ```
 
 **Go** (1.26 or newer):
 
 ```sh
-go install github.com/aaron03EM/peek/cmd/peek@latest
+go install github.com/skinleak/peek/cmd/peek@latest
 ```
 
-Or download a binary from the [releases page](https://github.com/aaron03EM/peek/releases).
+Or download a binary from the [releases page](https://github.com/skinleak/peek/releases).
 
 ## Usage
 

@@ -8,7 +8,7 @@
 
 Please **don't** open a public issue for security problems.
 
-Instead, report it privately through GitHub: open the [Security tab](https://github.com/aaron03EM/peek/security) of this repository and click **Report a vulnerability**. Include:
+Instead, report it privately through GitHub: open the [Security tab](https://github.com/skinleak/peek/security) of this repository and click **Report a vulnerability**. Include:
 
 - a description of the problem and its impact
 - steps to reproduce it

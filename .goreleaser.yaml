@@ -37,10 +37,10 @@ changelog:
 homebrew_casks:
   - name: peek
     repository:
-      owner: aaron03EM
+      owner: skinleak
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: https://github.com/aaron03EM/peek
+    homepage: https://github.com/skinleak/peek
     description: See what's listening on your ports, and free them up
     license: MIT
     hooks:
@@ -54,4 +54,4 @@ homebrew_casks:
 
 release:
   footer: |
-    **Install:** `brew install aaron03EM/tap/peek`, or `curl -fsSL https://raw.githubusercontent.com/aaron03EM/peek/main/install.sh | sh`
+    **Install:** `brew install skinleak/tap/peek`, or `curl -fsSL https://raw.githubusercontent.com/skinleak/peek/main/install.sh | sh`

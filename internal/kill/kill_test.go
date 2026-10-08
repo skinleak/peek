@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aaron03EM/peek/internal/scan"
+	"github.com/skinleak/peek/internal/scan"
 )
 
 func TestTargets(t *testing.T) {
