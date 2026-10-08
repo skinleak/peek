@@ -19,8 +19,13 @@ var (
 	Success = lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#4ADE80"} // local-only binds
 	Danger  = lipgloss.AdaptiveColor{Light: "#B91C1C", Dark: "#F87171"}
 	Muted   = lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"}
+	// Text is used for normal text instead of the terminal's default color,
+	// which some themes make darker than Muted and would invert the contrast.
+	Text = lipgloss.AdaptiveColor{Light: "#1F2937", Dark: "#E5E7EB"}
 	// selection is the background of the selected row in interactive mode.
 	selection = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#374151"}
+	// highlight is the background of text matching the filter.
+	highlight = lipgloss.AdaptiveColor{Light: "#FDE68A", Dark: "#854D0E"}
 )
 
 type styles struct {
@@ -30,6 +35,7 @@ type styles struct {
 	local   lipgloss.Style
 	dim     lipgloss.Style
 	plain   lipgloss.Style
+	match   lipgloss.Style
 }
 
 func newStyles(r *lipgloss.Renderer) styles {
@@ -39,7 +45,8 @@ func newStyles(r *lipgloss.Renderer) styles {
 		exposed: r.NewStyle().Foreground(Warning),
 		local:   r.NewStyle().Foreground(Success),
 		dim:     r.NewStyle().Foreground(Muted),
-		plain:   r.NewStyle(),
+		plain:   r.NewStyle().Foreground(Text),
+		match:   r.NewStyle().Background(highlight).Bold(true),
 	}
 }
 

@@ -71,7 +71,7 @@ func TestProcScanner(t *testing.T) {
 	addr := netip.MustParseAddr
 	want := []Listener{
 		{Port: 22, Protocol: "tcp6", Address: addr("::1"), User: "root"},
-		{Port: 3000, Protocol: "tcp", Address: addr("127.0.0.1"), User: "dev", PID: 100, ProcessName: "node", Command: []string{"node", "server.js"}, Cwd: "/home/dev/app", StartTime: started},
+		{Port: 3000, Protocol: "tcp", Address: addr("127.0.0.1"), User: "dev", Connections: 1, PID: 100, ProcessName: "node", Command: []string{"node", "server.js"}, Cwd: "/home/dev/app", StartTime: started},
 		{Port: 5001, Protocol: "tcp6", Address: addr("127.0.0.1"), User: "dev"},
 		{Port: 8080, Protocol: "tcp", Address: addr("0.0.0.0"), User: "root", PID: 200, ProcessName: "nginx", Cwd: "/", StartTime: started},
 		{Port: 8080, Protocol: "tcp", Address: addr("0.0.0.0"), User: "root", PID: 201, ProcessName: "nginx", Cwd: "/", StartTime: started},
@@ -116,7 +116,7 @@ func TestProcScannerMissingTCP(t *testing.T) {
 func equalListener(a, b Listener) bool {
 	return a.Port == b.Port && a.Protocol == b.Protocol && a.Address == b.Address &&
 		a.PID == b.PID && a.ProcessName == b.ProcessName && a.Cwd == b.Cwd &&
-		a.User == b.User && a.StartTime.Equal(b.StartTime) && slices.Equal(a.Command, b.Command)
+		a.User == b.User && a.Connections == b.Connections && a.StartTime.Equal(b.StartTime) && slices.Equal(a.Command, b.Command)
 }
 
 func copyFixture(t *testing.T, name, dst string) {

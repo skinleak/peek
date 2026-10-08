@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/binary"
+	"maps"
 	"net/netip"
 	"os"
 	"slices"
@@ -21,20 +22,24 @@ func openFixture(t *testing.T, name string) *os.File {
 }
 
 func TestParseProcNetTCP(t *testing.T) {
-	got, err := parseProcNet(openFixture(t, "tcp"), "tcp", binary.LittleEndian)
+	got, established, err := parseProcNet(openFixture(t, "tcp"), "tcp", binary.LittleEndian)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []socketEntry{
 		{Protocol: "tcp", Address: netip.MustParseAddr("127.0.0.1"), Port: 3000, UID: 1000, Inode: 11111},
 		{Protocol: "tcp", Address: netip.MustParseAddr("0.0.0.0"), Port: 8080, UID: 0, Inode: 22222},
-		// the ESTABLISHED row (inode 33333) must be skipped
+		// the ESTABLISHED row (inode 33333) is not a listener
 	}
 	assertEntries(t, got, want)
+	// ...but counts as a connection to port 3000
+	if !maps.Equal(established, map[uint16]int{3000: 1}) {
+		t.Errorf("established = %v, want map[3000:1]", established)
+	}
 }
 
 func TestParseProcNetTCP6(t *testing.T) {
-	got, err := parseProcNet(openFixture(t, "tcp6"), "tcp6", binary.LittleEndian)
+	got, _, err := parseProcNet(openFixture(t, "tcp6"), "tcp6", binary.LittleEndian)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +74,7 @@ func TestParseProcNetErrors(t *testing.T) {
 	}
 	for name, line := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := parseProcNet(strings.NewReader(header+line), "tcp", binary.LittleEndian)
+			_, _, err := parseProcNet(strings.NewReader(header+line), "tcp", binary.LittleEndian)
 			if err == nil {
 				t.Fatal("expected an error")
 			}

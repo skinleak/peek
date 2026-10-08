@@ -28,6 +28,7 @@ const (
 	afInet6Darwin         = 30   // AF_INET6 on darwin
 	sockInfoTCP           = 2    // SOCKINFO_TCP
 	tcpStateListen        = 1    // TSI_S_LISTEN
+	tcpStateEstablished   = 4    // TSI_S_ESTABLISHED
 	inIPv4                = 0x1  // INI_IPV4
 	inIPv6                = 0x2  // INI_IPV6
 	socketInfoOffset      = 24   // socket_fdinfo.psi, after struct proc_fileinfo
@@ -80,6 +81,17 @@ func parseSocketFDInfo(b []byte) (darwinSocket, bool) {
 		s.Address = netip.AddrFrom16([16]byte(laddr)).Unmap()
 	}
 	return s, true
+}
+
+// parseEstablishedPort reports the local port of an established TCP
+// connection described by a socket_fdinfo buffer.
+func parseEstablishedPort(b []byte) (uint16, bool) {
+	if len(b) < minSocketFDInfoLength ||
+		int32(le.Uint32(b[soiKindOffset:])) != sockInfoTCP ||
+		int32(le.Uint32(b[tcpsiStateOffset:])) != tcpStateEstablished {
+		return 0, false
+	}
+	return binary.BigEndian.Uint16(b[insiLportOffset:]), true
 }
 
 // bsdInfo is the subset of struct proc_bsdinfo that peek uses.

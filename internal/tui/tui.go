@@ -13,7 +13,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/skinleak/peek/internal/kill"
 	"github.com/skinleak/peek/internal/scan"
@@ -28,6 +27,8 @@ const (
 	// chromeLines is the number of lines around the table: title, blank,
 	// header, blank, details and footer.
 	chromeLines = 6
+	// firstRowLine is the screen line of the first table row.
+	firstRowLine = 3
 )
 
 // Config configures the interactive view.
@@ -41,12 +42,22 @@ type Config struct {
 	Scan func() ([]scan.Listener, error)
 	// Stop terminates a target without asking, as `peek kill --yes` does.
 	Stop func(t kill.Target, force bool) error
+	// Open opens a URL in the browser; Copy puts text on the clipboard.
+	// They default to the system's browser and clipboard.
+	Open func(url string) error
+	Copy func(text string) error
 }
 
 // Run shows the interactive view until the user quits.
 func Run(cfg Config) error {
+	if cfg.Open == nil {
+		cfg.Open = openURL
+	}
+	if cfg.Copy == nil {
+		cfg.Copy = copyText
+	}
 	m := newModel(cfg, ui.NewRenderer(os.Stdout, ui.ColorEnabled(os.Stdout)))
-	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
@@ -60,7 +71,27 @@ type (
 		target kill.Target
 		err    error
 	}
+	// actionMsg reports the result of opening or copying.
+	actionMsg struct {
+		done string // status on success
+		err  error
+	}
+	spinMsg struct{}
 )
+
+// mode is what fills the screen.
+type mode int
+
+const (
+	modeList   mode = iota
+	modeDetail      // the detail panel for the selected row
+	modeHelp        // the key reference
+)
+
+// spinInterval paces the spinner shown while a process is being stopped.
+const spinInterval = 100 * time.Millisecond
+
+var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // entry is a row as displayed: live, or closed recently and fading out.
 type entry struct {
@@ -88,6 +119,7 @@ type model struct {
 	now    func() time.Time
 
 	width, height int
+	mode          mode
 
 	rows      []ui.Row             // from the latest scan
 	firstSeen map[string]time.Time // when each live row appeared; zero for the first scan
@@ -102,8 +134,12 @@ type model struct {
 	filter    string
 	filtering bool // typing a filter
 
+	sortBy   sortOrder
+	reversed bool
+
 	confirm  *pendingStop
 	stopping bool
+	spinner  int // current spinner frame while stopping
 
 	status    string
 	statusErr bool
@@ -158,6 +194,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.applyScan(msg.ls)
+	case spinMsg:
+		if !m.stopping {
+			return m, nil
+		}
+		m.spinner = (m.spinner + 1) % len(spinFrames)
+		return m, m.spinCmd()
+	case actionMsg:
+		if msg.err != nil {
+			m.setStatus(msg.err.Error(), true)
+		} else {
+			m.setStatus(msg.done, false)
+		}
 	case stopMsg:
 		m.stopping = false
 		if msg.err != nil {
@@ -168,8 +216,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refresh()
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
+	case tea.MouseMsg:
+		m.handleMouse(msg)
 	}
 	return m, nil
+}
+
+func (m *model) spinCmd() tea.Cmd {
+	return tea.Tick(spinInterval, func(time.Time) tea.Msg { return spinMsg{} })
 }
 
 // applyScan replaces the rows, remembering which ones are new and which
@@ -224,12 +278,30 @@ func (m *model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case m.filtering:
 		m.handleFilterKey(k)
 		return nil
+	case m.mode == modeHelp:
+		m.mode = modeList // any key closes the help
+		if k.String() == "q" {
+			return tea.Quit
+		}
+		return nil
 	}
 
 	entries := m.entries()
 	switch k.String() {
 	case "q":
 		return tea.Quit
+	case "?":
+		m.mode = modeHelp
+	case "enter":
+		if m.mode == modeDetail {
+			m.mode = modeList
+		} else if m.cursor(entries) >= 0 {
+			m.mode = modeDetail
+		}
+	case "o":
+		return m.act(entries, "open")
+	case "c":
+		return m.act(entries, "copy")
 	case "up", "k":
 		m.moveCursor(entries, -1)
 	case "down", "j":
@@ -243,9 +315,17 @@ func (m *model) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "end", "G":
 		m.moveCursor(entries, len(entries))
 	case "/":
-		m.filtering = true
+		m.mode, m.filtering = modeList, true
 	case "esc":
-		m.filter = ""
+		if m.mode == modeDetail {
+			m.mode = modeList
+		} else {
+			m.filter = ""
+		}
+	case "s":
+		m.sortBy = (m.sortBy + 1) % numSortOrders
+	case "S":
+		m.reversed = !m.reversed
 	case "r":
 		return m.refresh()
 	case "x", "delete":
@@ -265,8 +345,52 @@ func (m *model) handleConfirmKey(k tea.KeyMsg) tea.Cmd {
 	}
 	m.stopping = true
 	m.setStatus(fmt.Sprintf("Stopping %s…", p.target), false)
-	return func() tea.Msg {
+	stop := func() tea.Msg {
 		return stopMsg{p.target, m.cfg.Stop(p.target, p.force)}
+	}
+	return tea.Batch(stop, m.spinCmd())
+}
+
+// act opens the selected row's URL in the browser or copies it.
+func (m *model) act(entries []entry, action string) tea.Cmd {
+	i := m.cursor(entries)
+	if i < 0 {
+		return nil
+	}
+	if entries[i].gone {
+		m.setStatus(fmt.Sprintf("Port %d is already closed", entries[i].row[0].Port), false)
+		return nil
+	}
+	url := browseURL(entries[i].row)
+	if action == "open" {
+		return func() tea.Msg { return actionMsg{"Opened " + url, m.cfg.Open(url)} }
+	}
+	return func() tea.Msg { return actionMsg{"Copied " + url, m.cfg.Copy(url)} }
+}
+
+// handleMouse scrolls with the wheel and selects rows by clicking. Clicking
+// the selected row again opens its details.
+func (m *model) handleMouse(msg tea.MouseMsg) {
+	if m.confirm != nil || m.filtering {
+		return
+	}
+	entries := m.entries()
+	switch {
+	case msg.Button == tea.MouseButtonWheelUp:
+		m.moveCursor(entries, -1)
+	case msg.Button == tea.MouseButtonWheelDown:
+		m.moveCursor(entries, 1)
+	case msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && m.mode == modeList:
+		i := m.offset + msg.Y - firstRowLine
+		if msg.Y < firstRowLine || i >= min(len(entries), m.offset+m.bodyHeight()) {
+			return
+		}
+		if entries[i].key == m.cursorKey {
+			m.mode = modeDetail
+		}
+		m.cursorKey, m.cursorIdx = entries[i].key, i
+	case m.mode == modeHelp && msg.Action == tea.MouseActionPress:
+		m.mode = modeList
 	}
 }
 
@@ -325,10 +449,70 @@ func (m *model) entries() []entry {
 		out = append(out, entry{row: c.row, key: k, gone: true})
 	}
 	out = slices.DeleteFunc(out, func(e entry) bool { return !matches(e.row, m.filter) })
-	slices.SortStableFunc(out, func(a, b entry) int {
-		return cmp.Or(cmp.Compare(a.row[0].Port, b.row[0].Port), strings.Compare(a.key, b.key))
-	})
+	slices.SortStableFunc(out, func(a, b entry) int { return m.compare(a, b) })
 	return out
+}
+
+// sortOrder is a way of ordering the rows, cycled with s.
+type sortOrder int
+
+const (
+	byPort    sortOrder = iota
+	byProcess           // alphabetically, by process or container name
+	byUptime            // newest first
+	numSortOrders
+)
+
+var sortNames = [numSortOrders]string{"port", "process", "uptime"}
+
+func (m *model) sortDescription() string {
+	d := "sorted by " + sortNames[m.sortBy]
+	if m.reversed {
+		d += ", reversed"
+	}
+	return d
+}
+
+// compare orders entries by the current sort. Rows missing the sort field,
+// such as processes owned by other users, stay at the end even when the
+// order is reversed. Ties fall back to port, then key, so the order is stable.
+func (m *model) compare(a, b entry) int {
+	la, lb := a.row[0], b.row[0]
+	var c int
+	switch m.sortBy {
+	case byPort:
+		c = cmp.Compare(la.Port, lb.Port)
+	case byProcess:
+		na, nb := strings.ToLower(displayName(la)), strings.ToLower(displayName(lb))
+		if d := cmp.Compare(boolInt(na == ""), boolInt(nb == "")); d != 0 {
+			return d
+		}
+		c = strings.Compare(na, nb)
+	case byUptime:
+		if d := cmp.Compare(boolInt(la.StartTime.IsZero()), boolInt(lb.StartTime.IsZero())); d != 0 {
+			return d
+		}
+		c = lb.StartTime.Compare(la.StartTime) // later start first
+	}
+	if m.reversed {
+		c = -c
+	}
+	return cmp.Or(c, cmp.Compare(la.Port, lb.Port), strings.Compare(a.key, b.key))
+}
+
+// displayName is the name the table shows for a row's owner.
+func displayName(l scan.Listener) string {
+	if l.Container != "" {
+		return l.Container
+	}
+	return l.ProcessName
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // matches reports whether any of the row's fields contains filter, ignoring case.
@@ -374,170 +558,23 @@ func (m *model) moveCursor(entries []entry, delta int) {
 	m.cursorKey, m.cursorIdx = entries[i].key, i
 }
 
-func (m *model) bodyHeight() int {
-	if m.height == 0 {
-		return 20 // size not known yet
-	}
-	return max(1, m.height-chromeLines)
-}
-
-func (m *model) View() string {
-	entries := m.entries()
-	cur := m.cursor(entries)
-
-	var b strings.Builder
-	b.WriteString(m.titleLine(len(m.rows)) + "\n\n")
-
-	body := m.bodyHeight()
-	switch {
-	case !m.scanned:
-		b.WriteString(m.st.dim.Render("  Scanning…") + "\n")
-		body--
-	case len(entries) == 0:
-		b.WriteString("  " + m.emptyMessage() + "\n")
-		body--
-	default:
-		// Render every entry, not just the visible ones, so column widths
-		// don't change while scrolling.
-		rows := make([]ui.Row, len(entries))
-		for i, e := range entries {
-			rows[i] = e.row
-		}
-		o := ui.Options{Width: max(0, m.width-2), Home: m.cfg.Home, Now: m.now()}
-		lines := ui.Lines(m.render, rows, o, func(i int) ui.RowStyle {
-			return ui.RowStyle{Selected: i == cur, Faded: entries[i].gone}
-		})
-		b.WriteString("  " + lines[0] + "\n")
-		m.offset = scrollOffset(m.offset, cur, body, len(entries))
-		end := min(len(entries), m.offset+body)
-		for i := m.offset; i < end; i++ {
-			b.WriteString(m.gutter(entries[i], i == cur) + lines[i+1] + "\n")
-		}
-		body -= end - m.offset
-	}
-	b.WriteString(strings.Repeat("\n", max(0, body)+1))
-
-	if cur >= 0 {
-		b.WriteString(m.truncate(m.details(entries[cur])))
-	}
-	b.WriteString("\n" + m.truncate(m.footer()))
-	return b.String()
-}
-
-// scrollOffset keeps the cursor within the visible window of height rows.
-func scrollOffset(offset, cursor, height, total int) int {
-	if cursor < offset {
-		offset = cursor
-	}
-	if cursor >= offset+height {
-		offset = cursor - height + 1
-	}
-	return max(0, min(offset, total-height))
-}
-
-func (m *model) titleLine(n int) string {
-	parts := []string{fmt.Sprintf("%d listening", n)}
-	if len(m.cfg.Ranges) > 0 {
-		parts = append(parts, scan.DescribePorts(m.cfg.Ranges))
-	}
-	if m.filter != "" && !m.filtering {
-		parts = append(parts, fmt.Sprintf("filter %q", m.filter))
-	}
-	if !m.cfg.Root && m.hasHiddenOwners() {
-		parts = append(parts, "some owners hidden, run with sudo to see them")
-	}
-	return m.truncate(" " + m.st.title.Render("peek") + "  " + m.st.dim.Render(strings.Join(parts, " · ")))
-}
-
-func (m *model) hasHiddenOwners() bool {
-	return slices.ContainsFunc(m.rows, func(r ui.Row) bool { return r[0].PID == 0 && r[0].ContainerID == "" })
-}
-
-func (m *model) emptyMessage() string {
-	switch {
-	case m.filter != "":
-		return m.st.dim.Render(fmt.Sprintf("Nothing matches %q. Press esc to clear the filter.", m.filter))
-	case len(m.cfg.Ranges) > 0:
-		return m.st.dim.Render("Nothing is listening on " + scan.DescribePorts(m.cfg.Ranges) + ".")
-	default:
-		return m.st.dim.Render("Nothing is listening.")
-	}
-}
-
-func (m *model) gutter(e entry, selected bool) string {
-	switch {
-	case selected:
-		return m.st.title.Render("›") + " "
-	case e.new:
-		return m.st.added.Render("+") + " "
-	case e.gone:
-		return m.st.dim.Render("-") + " "
-	default:
-		return "  "
-	}
-}
-
-// details describes the selected row beyond what fits in the table.
-func (m *model) details(e entry) string {
-	l := e.row[0]
-	var parts []string
-	switch {
-	case l.ContainerID != "":
-		parts = append(parts, fmt.Sprintf("container %s (%s)", l.Container, shortID(l.ContainerID)))
-	case len(l.Command) > 0:
-		parts = append(parts, strings.Join(l.Command, " "))
-	}
-	if l.User != "" {
-		parts = append(parts, "user "+l.User)
-	}
-	if e.gone {
-		parts = append([]string{"closed"}, parts...)
-	}
-	return " " + m.st.dim.Render(strings.Join(parts, " · "))
-}
-
-func (m *model) footer() string {
-	switch {
-	case m.confirm != nil:
-		return " " + m.st.prompt.Render(m.confirm.target.Action(m.confirm.force)+"?") + m.st.dim.Render(" [y/N]")
-	case m.filtering:
-		return " /" + m.filter + m.st.cursor.Render(" ") + m.st.dim.Render("  enter apply · esc clear")
-	case m.status != "" && (m.stopping || m.now().Sub(m.statusAt) < statusFor):
-		if m.statusErr {
-			return " " + m.st.err.Render(m.status)
-		}
-		return " " + m.st.ok.Render(m.status)
-	}
-	keys := []string{"↑↓ move", "x stop", "X force kill", "/ filter", "r refresh", "q quit"}
-	if m.filter != "" {
-		keys = slices.Insert(keys, 4, "esc clear filter")
-	}
-	return " " + m.st.dim.Render(strings.Join(keys, "  "))
-}
-
-func (m *model) truncate(s string) string {
-	if m.width <= 0 {
-		return s
-	}
-	return ansi.Truncate(s, m.width, "…")
-}
-
-func shortID(id string) string {
-	return id[:min(12, len(id))]
-}
-
 type styles struct {
-	title, dim, added, prompt, ok, err, cursor lipgloss.Style
+	title, text, bold, dim, added, prompt, ok, warn, err, cursor, border, key lipgloss.Style
 }
 
 func newStyles(r *lipgloss.Renderer) styles {
 	return styles{
 		title:  r.NewStyle().Bold(true).Foreground(ui.Accent),
+		text:   r.NewStyle().Foreground(ui.Text),
+		bold:   r.NewStyle().Bold(true).Foreground(ui.Text),
 		dim:    r.NewStyle().Foreground(ui.Muted),
 		added:  r.NewStyle().Bold(true).Foreground(ui.Success),
 		prompt: r.NewStyle().Bold(true).Foreground(ui.Warning),
 		ok:     r.NewStyle().Foreground(ui.Success),
+		warn:   r.NewStyle().Foreground(ui.Warning),
 		err:    r.NewStyle().Foreground(ui.Danger),
 		cursor: r.NewStyle().Reverse(true),
+		border: r.NewStyle().Foreground(ui.Muted),
+		key:    r.NewStyle().Bold(true).Foreground(ui.Accent),
 	}
 }

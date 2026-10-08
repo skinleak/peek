@@ -28,6 +28,7 @@ type Listener struct {
 	Cwd         string     `json:"cwd,omitzero"`
 	StartTime   time.Time  `json:"start_time,omitzero"`
 	User        string     `json:"user,omitzero"`
+	Connections int        `json:"connections,omitzero"`  // established connections to this port that peek can see
 	Container   string     `json:"container,omitzero"`    // Docker container publishing this port
 	ContainerID string     `json:"container_id,omitzero"` // its full ID
 }

@@ -70,6 +70,19 @@ func TestParseSocketFDInfo(t *testing.T) {
 	}
 }
 
+func TestParseEstablishedPort(t *testing.T) {
+	var v4 [16]byte
+	if port, ok := parseEstablishedPort(socketFDInfo(2, 4, 2, 0x1, 3000, v4)); !ok || port != 3000 {
+		t.Errorf("established: got %d, %v; want 3000, true", port, ok)
+	}
+	if _, ok := parseEstablishedPort(socketFDInfo(2, 1, 2, 0x1, 3000, v4)); ok {
+		t.Error("a listener is not an established connection")
+	}
+	if _, ok := parseEstablishedPort(socketFDInfo(2, 4, 2, 0x1, 3000, v4)[:300]); ok {
+		t.Error("a truncated buffer must be rejected")
+	}
+}
+
 func TestParseBSDInfo(t *testing.T) {
 	b := make([]byte, 136)
 	binary.LittleEndian.PutUint32(b[20:], 501) // pbi_uid

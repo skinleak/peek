@@ -34,6 +34,7 @@ func (s *libprocScanner) Scan() ([]Listener, error) {
 
 	seen := make(map[socketKey]bool)
 	sockBuf := make([]byte, socketFDInfoSize)
+	established := make(map[uint16]int)
 	var out []Listener
 	for _, pid := range parsePIDs(pidBuf) {
 		fdBuf := readGrowing(256*procFDInfoSize, func(b []byte) int {
@@ -43,6 +44,10 @@ func (s *libprocScanner) Scan() ([]Listener, error) {
 		for _, fd := range parseSocketFDs(fdBuf) {
 			n := procPIDFDInfo(pid, fd, procPIDFDSocketInfo, sockBuf)
 			if n <= 0 {
+				continue
+			}
+			if port, ok := parseEstablishedPort(sockBuf[:n]); ok {
+				established[port]++
 				continue
 			}
 			sock, ok := parseSocketFDInfo(sockBuf[:n])
@@ -58,6 +63,10 @@ func (s *libprocScanner) Scan() ([]Listener, error) {
 			l.Port, l.Protocol, l.Address = sock.Port, sock.Protocol, sock.Address
 			out = append(out, l)
 		}
+	}
+	// Only connections held by processes we can inspect are counted.
+	for i := range out {
+		out[i].Connections = established[out[i].Port]
 	}
 	sortListeners(out)
 	return out, nil

@@ -57,7 +57,8 @@ internal/docker/      names containers that publish ports, stops them via the AP
 internal/ui/          table and JSON rendering
 internal/tui/         interactive mode (peek -i), built with Bubble Tea
 internal/kill/        signalling, confirmation and waiting for exit
-docs/demo.svg         terminal screenshot used in the README
+docs/demo.gif         terminal recording used in the README
+docs/demo/            how it's recorded: run docs/demo/record.sh (needs Docker)
 install.sh            installer used by `curl ... | sh`
 .goreleaser.yaml      release builds, archives and the Homebrew cask
 ```
@@ -88,7 +89,7 @@ The release workflow runs the tests, then GoReleaser builds the binaries, create
 1. Fork the repo and create a branch from `main`.
 2. Make your change and add or update tests.
 3. Make sure `go vet ./...`, `go test ./...` and `gofmt -l .` are clean.
-4. If you changed behavior or output, update the README (and `docs/demo.svg` if the table looks different).
+4. If you changed behavior or output, update the README (and re-record `docs/demo.gif` with `docs/demo/record.sh` if the interactive view looks different).
 5. Open a pull request describing what changed and why.
 
 Keep pull requests focused: one feature or fix per PR is much easier to review.
