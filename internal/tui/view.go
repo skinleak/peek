@@ -119,6 +119,9 @@ func (m *model) titleLine() string {
 	if len(m.cfg.Ranges) > 0 {
 		extra = append(extra, scan.DescribePorts(m.cfg.Ranges))
 	}
+	if len(m.cfg.Dirs) > 0 {
+		extra = append(extra, "in "+ui.DescribeDirs(m.cfg.Dirs, m.cfg.Home))
+	}
 	if m.sortBy != byPort || m.reversed {
 		extra = append(extra, m.sortDescription())
 	}
@@ -150,10 +153,8 @@ func (m *model) emptyMessage() string {
 	switch {
 	case m.filter != "":
 		return m.st.dim.Render(fmt.Sprintf("Nothing matches %q. Press esc to clear the filter.", m.filter))
-	case len(m.cfg.Ranges) > 0:
-		return m.st.dim.Render("Nothing is listening on " + scan.DescribePorts(m.cfg.Ranges) + ".")
 	default:
-		return m.st.dim.Render("Nothing is listening.")
+		return m.st.dim.Render(ui.NothingListening(m.cfg.Ranges, m.cfg.Dirs, m.cfg.Home) + ".")
 	}
 }
 

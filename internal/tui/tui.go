@@ -34,11 +34,12 @@ const (
 // Config configures the interactive view.
 type Config struct {
 	Ranges   []scan.PortRange // ports being watched, for the title; empty means all
+	Dirs     []string         // project directories being watched, for the title
 	Interval time.Duration    // how often to rescan
 	Home     string           // home directory to abbreviate as "~"
 	Root     bool             // running as root, so no owners are hidden
 
-	// Scan lists the listeners to show, already filtered to Ranges.
+	// Scan lists the listeners to show, already filtered to Ranges and Dirs.
 	Scan func() ([]scan.Listener, error)
 	// Stop terminates a target without asking, as `peek kill --yes` does.
 	Stop func(t kill.Target, force bool) error

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +109,32 @@ func Filter(ls []Listener, ranges []PortRange) []Listener {
 		}
 	}
 	return out
+}
+
+// InDirs returns the listeners whose working directory is one of dirs or
+// lies inside one. With no dirs, all listeners are returned. Listeners with an
+// unknown working directory never match.
+func InDirs(ls []Listener, dirs []string) []Listener {
+	if len(dirs) == 0 {
+		return ls
+	}
+	var out []Listener
+	for _, l := range ls {
+		for _, d := range dirs {
+			if l.Cwd != "" && Within(l.Cwd, d) {
+				out = append(out, l)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// Within reports whether path is dir or lies inside it. Both must be clean
+// absolute paths.
+func Within(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // DescribePorts renders ranges for messages: "port 3000", "ports 3000-3999".

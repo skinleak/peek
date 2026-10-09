@@ -35,10 +35,15 @@ var proxyProcesses = map[string]bool{
 	"vpnkit-bridge":      true,
 }
 
+// composeDirLabel is set by Docker Compose to the directory the project was
+// started from.
+const composeDirLabel = "com.docker.compose.project.working_dir"
+
 // Container is a running container and the host ports it publishes.
 type Container struct {
 	ID    string
 	Name  string
+	Dir   string // Compose project directory, if started by Compose
 	Ports []Port
 }
 
@@ -86,7 +91,9 @@ func needsLookup(ls []scan.Listener) bool {
 
 // Annotate sets Container and ContainerID on listeners held by a Docker
 // proxy process (or by an unknown process) on a port a container publishes.
-// An exact host-address match wins over a match on port alone.
+// Their Cwd becomes the container's Compose project directory, since the
+// proxy's own is meaningless. An exact host-address match wins over a match
+// on port alone.
 func Annotate(ls []scan.Listener, cs []Container) {
 	for i := range ls {
 		l := &ls[i]
@@ -94,7 +101,7 @@ func Annotate(ls []scan.Listener, cs []Container) {
 			continue
 		}
 		if c := publisher(*l, cs); c != nil {
-			l.Container, l.ContainerID = c.Name, c.ID
+			l.Container, l.ContainerID, l.Cwd = c.Name, c.ID, c.Dir
 		}
 	}
 }
@@ -159,9 +166,10 @@ func socketPath() string {
 
 // apiContainer is the subset of GET /containers/json that peek uses.
 type apiContainer struct {
-	ID    string   `json:"Id"`
-	Names []string `json:"Names"`
-	Ports []struct {
+	ID     string            `json:"Id"`
+	Names  []string          `json:"Names"`
+	Labels map[string]string `json:"Labels"`
+	Ports  []struct {
 		IP         string `json:"IP"`
 		PublicPort uint16 `json:"PublicPort"`
 		Type       string `json:"Type"`
@@ -185,7 +193,7 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 func convert(raw []apiContainer) []Container {
 	cs := make([]Container, 0, len(raw))
 	for _, r := range raw {
-		c := Container{ID: r.ID, Name: r.ID}
+		c := Container{ID: r.ID, Name: r.ID, Dir: r.Labels[composeDirLabel]}
 		if len(r.Names) > 0 {
 			c.Name = strings.TrimPrefix(r.Names[0], "/")
 		}

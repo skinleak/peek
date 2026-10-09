@@ -17,17 +17,17 @@ var addr = netip.MustParseAddr
 
 func TestAnnotate(t *testing.T) {
 	cs := []Container{
-		{ID: "db1", Name: "db", Ports: []Port{{IP: addr("0.0.0.0"), Public: 5432}, {IP: addr("::"), Public: 5432}}},
+		{ID: "db1", Name: "db", Dir: "/home/dev/webapp", Ports: []Port{{IP: addr("0.0.0.0"), Public: 5432}, {IP: addr("::"), Public: 5432}}},
 		{ID: "web1", Name: "web-local", Ports: []Port{{IP: addr("127.0.0.1"), Public: 8080}}},
 		{ID: "web2", Name: "web-public", Ports: []Port{{IP: addr("0.0.0.0"), Public: 8080}}},
 	}
 	ls := []scan.Listener{
 		{Port: 5432, Address: addr("0.0.0.0"), PID: 900, ProcessName: "docker-proxy"},
-		{Port: 5432, Address: addr("::"), PID: 0},                                           // hidden owner
-		{Port: 8080, Address: addr("0.0.0.0"), PID: 901, ProcessName: "docker-proxy"},       // exact IP beats port-only
-		{Port: 8080, Address: addr("127.0.0.1"), PID: 902, ProcessName: "docker-proxy"},     // exact IP
-		{Port: 5432, Address: addr("127.0.0.1"), PID: 1234, ProcessName: "postgres"},        // not a proxy: untouched
-		{Port: 9999, Address: addr("0.0.0.0"), PID: 903, ProcessName: "com.docker.backend"}, // no container
+		{Port: 5432, Address: addr("::"), PID: 0},                                                    // hidden owner
+		{Port: 8080, Address: addr("0.0.0.0"), PID: 901, ProcessName: "docker-proxy", Cwd: "/"},      // exact IP beats port-only
+		{Port: 8080, Address: addr("127.0.0.1"), PID: 902, ProcessName: "docker-proxy"},              // exact IP
+		{Port: 5432, Address: addr("127.0.0.1"), PID: 1234, ProcessName: "postgres", Cwd: "/srv/pg"}, // not a proxy: untouched
+		{Port: 9999, Address: addr("0.0.0.0"), PID: 903, ProcessName: "com.docker.backend"},          // no container
 	}
 	Annotate(ls, cs)
 
@@ -39,6 +39,13 @@ func TestAnnotate(t *testing.T) {
 	}
 	if ls[0].ContainerID != "db1" {
 		t.Errorf("container ID = %q, want db1", ls[0].ContainerID)
+	}
+	// The proxy's own directory is replaced, even when the container has none.
+	wantCwd := []string{"/home/dev/webapp", "/home/dev/webapp", "", "", "/srv/pg", ""}
+	for i, w := range wantCwd {
+		if ls[i].Cwd != w {
+			t.Errorf("listener %d (%d %v): cwd = %q, want %q", i, ls[i].Port, ls[i].Address, ls[i].Cwd, w)
+		}
 	}
 }
 
@@ -66,7 +73,7 @@ func TestSocketPathFromDockerHost(t *testing.T) {
 }
 
 const containersJSON = `[
-  {"Id": "abc123", "Names": ["/myapp-db"], "Ports": [
+  {"Id": "abc123", "Names": ["/myapp-db"], "Labels": {"com.docker.compose.project.working_dir": "/home/dev/myapp"}, "Ports": [
     {"IP": "0.0.0.0", "PrivatePort": 5432, "PublicPort": 5432, "Type": "tcp"},
     {"IP": "::", "PrivatePort": 5432, "PublicPort": 5432, "Type": "tcp"},
     {"PrivatePort": 9000, "Type": "tcp"},
@@ -114,7 +121,7 @@ func TestClientContainers(t *testing.T) {
 	if len(cs) != 2 {
 		t.Fatalf("got %d containers, want 2", len(cs))
 	}
-	if cs[0].Name != "myapp-db" || cs[0].ID != "abc123" {
+	if cs[0].Name != "myapp-db" || cs[0].ID != "abc123" || cs[0].Dir != "/home/dev/myapp" {
 		t.Errorf("container 0 = %+v", cs[0])
 	}
 	// Only published TCP ports are kept.
