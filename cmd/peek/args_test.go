@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -35,6 +36,8 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"kill"}, config{kill: true}},
 		{[]string{"kill", "-f"}, config{kill: true, force: true}},
 		{[]string{"3000-3999", "--interactive"}, config{interactive: true, ranges: []scan.PortRange{pr(3000, 3999)}}},
+		{[]string{"completion", "zsh"}, config{completion: "zsh"}},
+		{[]string{"__ports"}, config{listPorts: true}},
 	}
 	for _, tt := range tests {
 		got, err := parseArgs(tt.args)
@@ -71,6 +74,13 @@ func TestParseArgsErrors(t *testing.T) {
 		{[]string{"wait", "5432", "-t", "0"}, "must be more than zero"},
 		{[]string{"5432", "--free"}, "--free only applies"},
 		{[]string{"5432", "--timeout", "5s"}, "--timeout only applies"},
+		{[]string{"completion"}, "completion needs a shell"},
+		{[]string{"completion", "zsh", "bash"}, "completion needs a shell"},
+		{[]string{"completion", "powershell"}, `unsupported shell "powershell"`},
+		{[]string{"completion", "zsh", "--json"}, "completion doesn't take flags"},
+		{[]string{"wait", "5432", "."}, "wait takes ports, not directories"},
+		{[]string{"./does-not-exist"}, `no such directory "./does-not-exist"`},
+		{[]string{"300o"}, `invalid port "300o"`},
 	}
 	for _, tt := range tests {
 		_, err := parseArgs(tt.args)
@@ -84,7 +94,40 @@ func equalConfig(a, b config) bool {
 	return a.kill == b.kill && a.json == b.json && a.interactive == b.interactive &&
 		a.wait == b.wait && a.free == b.free && a.timeout == b.timeout &&
 		a.force == b.force && a.yes == b.yes && a.help == b.help && a.version == b.version &&
-		slices.Equal(a.ranges, b.ranges)
+		slices.Equal(a.ranges, b.ranges) && slices.Equal(a.dirs, b.dirs) &&
+		a.completion == b.completion && a.listPorts == b.listPorts
 }
 
 func pr(lo, hi uint16) scan.PortRange { return scan.PortRange{Lo: lo, Hi: hi} }
+
+func TestParseArgsDirs(t *testing.T) {
+	home := realDir(t)
+	t.Setenv("HOME", home)
+	repo := filepath.Join(home, "code", "webapp")
+	mkdir(t, filepath.Join(repo, ".git"))
+	mkdir(t, filepath.Join(repo, "apps", "api"))
+	plain := filepath.Join(home, "notes")
+	mkdir(t, plain)
+	t.Chdir(filepath.Join(repo, "apps"))
+
+	tests := []struct {
+		args []string
+		want config
+	}{
+		{[]string{"."}, config{dirs: []string{repo}}},
+		{[]string{"./api"}, config{dirs: []string{repo}}},
+		{[]string{"~/notes", "3000"}, config{dirs: []string{plain}, ranges: []scan.PortRange{pr(3000, 3000)}}},
+		{[]string{"kill", ".", "-y"}, config{kill: true, yes: true, dirs: []string{repo}}},
+		{[]string{"-i", plain}, config{interactive: true, dirs: []string{plain}}},
+	}
+	for _, tt := range tests {
+		got, err := parseArgs(tt.args)
+		if err != nil {
+			t.Errorf("parseArgs(%q): unexpected error %v", tt.args, err)
+			continue
+		}
+		if !equalConfig(got, tt.want) {
+			t.Errorf("parseArgs(%q) = %+v, want %+v", tt.args, got, tt.want)
+		}
+	}
+}

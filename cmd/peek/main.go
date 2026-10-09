@@ -55,6 +55,12 @@ func run(args []string) int {
 		return exitOK
 	}
 
+	if cfg.completion != "" {
+		return runCompletion(cfg.completion)
+	}
+	if cfg.listPorts {
+		return runListPorts()
+	}
 	if cfg.wait {
 		return runWait(cfg)
 	}
@@ -62,12 +68,12 @@ func run(args []string) int {
 		return runInteractive(cfg)
 	}
 	interactive := isTerminal(os.Stdin) && isTerminal(os.Stdout)
-	if cfg.kill && len(cfg.ranges) == 0 && !interactive {
-		fmt.Fprintln(os.Stderr, "peek: kill needs a port, e.g. 'peek kill 3000'\nRun 'peek --help' for usage.")
+	if cfg.kill && !cfg.scoped() && !interactive {
+		fmt.Fprintln(os.Stderr, "peek: kill needs a port or directory, e.g. 'peek kill 3000' or 'peek kill .'\nRun 'peek --help' for usage.")
 		return exitUsage
 	}
 
-	matched, dockerClient, err := listen(cfg.ranges)
+	matched, dockerClient, err := listen(cfg.ranges, cfg.dirs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "peek: %v\n", err)
 		return exitNotFound
@@ -80,14 +86,17 @@ func run(args []string) int {
 }
 
 // listen scans for listeners on the given ports and names the Docker
-// containers among them. The client is nil if Docker isn't needed or reachable.
-func listen(ranges []scan.PortRange) ([]scan.Listener, *docker.Client, error) {
+// containers among them, then keeps those running from inside dirs (if any).
+// Containers count as running from their Compose project directory. The
+// client is nil if Docker isn't needed or reachable.
+func listen(ranges []scan.PortRange, dirs []string) ([]scan.Listener, *docker.Client, error) {
 	all, err := scan.New().Scan()
 	if err != nil {
 		return nil, nil, err
 	}
 	matched := scan.Filter(all, ranges)
-	return matched, docker.Enrich(matched), nil
+	dc := docker.Enrich(matched)
+	return scan.InDirs(matched, dirs), dc, nil
 }
 
 func runInteractive(cfg config) int {
@@ -98,11 +107,12 @@ func runInteractive(cfg config) int {
 	home, _ := os.UserHomeDir()
 	err := tui.Run(tui.Config{
 		Ranges:   cfg.ranges,
+		Dirs:     cfg.dirs,
 		Interval: refreshInterval,
 		Home:     home,
 		Root:     os.Geteuid() == 0,
 		Scan: func() ([]scan.Listener, error) {
-			ls, _, err := listen(cfg.ranges)
+			ls, _, err := listen(cfg.ranges, cfg.dirs)
 			return ls, err
 		},
 		Stop: func(t kill.Target, force bool) error {
@@ -125,7 +135,7 @@ func isTerminal(f *os.File) bool {
 
 func runList(cfg config, ls []scan.Listener) int {
 	code := exitOK
-	if len(ls) == 0 && len(cfg.ranges) > 0 {
+	if len(ls) == 0 && cfg.scoped() {
 		code = exitNotFound
 	}
 
@@ -138,7 +148,7 @@ func runList(cfg config, ls []scan.Listener) int {
 	}
 
 	if len(ls) == 0 {
-		fmt.Println(nothingListening(cfg.ranges))
+		fmt.Println(nothingListening(cfg))
 		return code
 	}
 	if err := ui.Table(os.Stdout, ls, ui.DefaultOptions(os.Stdout)); err != nil {
@@ -155,12 +165,12 @@ func runList(cfg config, ls []scan.Listener) int {
 // no ports were given, or when several processes match and --yes wasn't.
 func runKill(cfg config, ls []scan.Listener, dc *docker.Client, interactive bool) int {
 	if len(ls) == 0 {
-		fmt.Println(nothingListening(cfg.ranges))
+		fmt.Println(nothingListening(cfg))
 		return exitNotFound
 	}
 
 	targets, hidden := kill.Targets(ls)
-	pick := interactive && len(targets) > 0 && (len(cfg.ranges) == 0 || (len(targets) > 1 && !cfg.yes))
+	pick := interactive && len(targets) > 0 && (!cfg.scoped() || (len(targets) > 1 && !cfg.yes))
 	if !pick {
 		for _, l := range hidden {
 			fmt.Fprintf(os.Stderr, "peek: can't see which process owns port %d (user %s); try again with sudo\n", l.Port, l.User)
@@ -231,11 +241,12 @@ func versionString() string {
 	return "dev"
 }
 
-func nothingListening(ranges []scan.PortRange) string {
-	if len(ranges) == 0 {
+func nothingListening(cfg config) string {
+	if !cfg.scoped() {
 		return "Nothing is listening."
 	}
-	return "Nothing is listening on " + scan.DescribePorts(ranges)
+	home, _ := os.UserHomeDir()
+	return ui.NothingListening(cfg.ranges, cfg.dirs, home)
 }
 
 // distinctPorts counts the different ports in ls; a port can have one

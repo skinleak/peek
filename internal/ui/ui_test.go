@@ -315,3 +315,40 @@ func TestPaintWithoutHighlight(t *testing.T) {
 		t.Errorf("paint without color = %q", got)
 	}
 }
+
+func TestNothingListening(t *testing.T) {
+	ports := []scan.PortRange{{Lo: 3000, Hi: 3000}}
+	dirs := []string{"/home/dev/webapp", "/srv/api"}
+	tests := []struct {
+		ranges []scan.PortRange
+		dirs   []string
+		want   string
+	}{
+		{nil, nil, "Nothing is listening"},
+		{ports, nil, "Nothing is listening on port 3000"},
+		{nil, dirs[:1], "Nothing is listening in ~/webapp"},
+		{ports, dirs, "Nothing is listening on port 3000 in ~/webapp, /srv/api"},
+	}
+	for _, tt := range tests {
+		if got := NothingListening(tt.ranges, tt.dirs, "/home/dev"); got != tt.want {
+			t.Errorf("NothingListening(%v, %v) = %q, want %q", tt.ranges, tt.dirs, got, tt.want)
+		}
+	}
+}
+
+func TestProcessLabel(t *testing.T) {
+	tests := []struct {
+		l    scan.Listener
+		want string
+	}{
+		{scan.Listener{PID: 1, ProcessName: "node", Command: []string{"node", "node_modules/.bin/vite"}}, "node (vite)"},
+		{scan.Listener{PID: 1, ProcessName: "postgres"}, "postgres"},
+		{scan.Listener{PID: 1, ProcessName: "docker-proxy", Container: "webapp-db"}, "webapp-db (docker)"},
+		{scan.Listener{}, "-"},
+	}
+	for _, tt := range tests {
+		if got := ProcessLabel(tt.l); got != tt.want {
+			t.Errorf("ProcessLabel(%+v) = %q, want %q", tt.l, got, tt.want)
+		}
+	}
+}

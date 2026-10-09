@@ -2,6 +2,7 @@ package scan
 
 import (
 	"net/netip"
+	"slices"
 	"testing"
 )
 
@@ -85,6 +86,39 @@ func TestFilter(t *testing.T) {
 				if got[i] != tt.want[i] {
 					t.Fatalf("got %v, want %v", got, tt.want)
 				}
+			}
+		})
+	}
+}
+
+func TestInDirs(t *testing.T) {
+	ls := []Listener{
+		{Port: 3000, Cwd: "/home/dev/webapp"},
+		{Port: 3001, Cwd: "/home/dev/webapp/apps/api"},
+		{Port: 3002, Cwd: "/home/dev/webapp-old"}, // shares a prefix, but isn't inside
+		{Port: 5432, Cwd: "/"},
+		{Port: 8080}, // unknown working directory
+	}
+	tests := []struct {
+		name string
+		dirs []string
+		want []uint16
+	}{
+		{"no dirs", nil, []uint16{3000, 3001, 3002, 5432, 8080}},
+		{"project and subdirectories", []string{"/home/dev/webapp"}, []uint16{3000, 3001}},
+		{"subdirectory only", []string{"/home/dev/webapp/apps"}, []uint16{3001}},
+		{"several", []string{"/home/dev/webapp/apps/api", "/home/dev/webapp-old"}, []uint16{3001, 3002}},
+		{"root matches everything known", []string{"/"}, []uint16{3000, 3001, 3002, 5432}},
+		{"no match", []string{"/srv"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []uint16
+			for _, l := range InDirs(ls, tt.dirs) {
+				got = append(got, l.Port)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
 	}

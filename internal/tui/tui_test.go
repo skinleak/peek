@@ -469,6 +469,20 @@ func TestTitleSummarizesExposure(t *testing.T) {
 	}
 }
 
+func TestTitleAndEmptyMessageNameTheProject(t *testing.T) {
+	tm := newTestModel(t)
+	tm.cfg.Ranges = []scan.PortRange{{Lo: 3000, Hi: 3999}}
+	tm.cfg.Dirs = []string{"/home/dev/webapp"}
+	tm.scan()
+	view := tm.View()
+	if title := strings.SplitN(view, "\n", 2)[0]; !strings.Contains(title, "ports 3000-3999 · in ~/webapp") {
+		t.Errorf("title = %q", title)
+	}
+	if !strings.Contains(view, "Nothing is listening on ports 3000-3999 in ~/webapp.") {
+		t.Errorf("view doesn't explain why it's empty:\n%s", view)
+	}
+}
+
 func TestSpinnerWhileStopping(t *testing.T) {
 	tm := newTestModel(t)
 	tm.scan(listener(3000, 4242, "node"))

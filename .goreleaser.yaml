@@ -4,6 +4,10 @@ version: 2
 
 project_name: peek
 
+before:
+  hooks:
+    - ./scripts/completions.sh
+
 builds:
   - id: peek
     main: ./cmd/peek
@@ -20,7 +24,7 @@ builds:
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    files: [LICENSE, README.md]
+    files: [LICENSE, README.md, completions/*]
 
 checksum:
   name_template: checksums.txt
@@ -43,6 +47,10 @@ homebrew_casks:
     homepage: https://github.com/skinleak/peek
     description: See what's listening on your ports, and free them up
     license: MIT
+    completions:
+      bash: completions/peek.bash
+      zsh: completions/peek.zsh
+      fish: completions/peek.fish
     hooks:
       post:
         # The binary isn't notarized; drop the quarantine flag so macOS

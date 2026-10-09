@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +16,19 @@ const usage = `peek - see what's listening on your ports, and free them up
 Usage:
   peek [flags]                    list everything listening
   peek <port|range>... [flags]    show listeners on ports, e.g. 3000 or 3000-3999
-  peek kill [<port|range>...]     terminate the processes on those ports; in a
-                                  terminal, pick from a list if there are several
-  peek -i [<port|range>...]       live view to browse ports and stop processes
+  peek <dir>... [flags]           show what runs from a project, e.g. peek .
+  peek kill [<port|range|dir>...]
+                                  terminate the processes on those ports or from
+                                  that project; in a terminal, pick from a list
+                                  if there are several
+  peek -i [<port|range|dir>...]   live view to browse ports and stop processes
   peek wait <port|range>...       wait until something listens on each, or with
                                   --free until nothing does
+  peek completion <shell>         print a completion script: bash, zsh or fish
+
+A directory stands for its project: the git repository it's in, or the
+directory itself outside one. Ports and directories can be combined, as in
+'peek . 3000-3999'.
 
 Flags:
   -i, --interactive  live view: select a row and press x to stop it
@@ -38,6 +47,7 @@ Exit codes: 0 success, 1 nothing listening or operation failed, 2 usage error.
 type config struct {
 	kill        bool
 	ranges      []scan.PortRange
+	dirs        []string // project roots; processes must run from inside one
 	json        bool
 	interactive bool
 	force       bool
@@ -48,6 +58,9 @@ type config struct {
 	wait    bool          // peek wait
 	free    bool          // wait until the ports are free
 	timeout time.Duration // how long to wait; 0 means forever
+
+	completion string // peek completion: the shell to print a script for
+	listPorts  bool   // peek __ports: listening ports for shell completion
 }
 
 // parseArgs parses the command line (without the program name). Flags may
@@ -79,6 +92,17 @@ func parseArgs(args []string) (config, error) {
 		return cfg, nil
 	}
 
+	if len(positional) > 0 && positional[0] == "completion" {
+		if len(positional) != 2 {
+			return config{}, errors.New("completion needs a shell: bash, zsh or fish")
+		}
+		cfg.completion = positional[1]
+		return cfg, cfg.validate()
+	}
+	if len(positional) == 1 && positional[0] == "__ports" {
+		cfg.listPorts = true
+		return cfg, nil
+	}
 	if len(positional) > 0 && positional[0] == "kill" {
 		cfg.kill = true
 		positional = positional[1:] // without ports, run decides: picker or error
@@ -90,7 +114,16 @@ func parseArgs(args []string) (config, error) {
 			return config{}, errors.New("wait needs a port, e.g. 'peek wait 5432'")
 		}
 	}
+	home, _ := os.UserHomeDir()
 	for _, p := range positional {
+		if isDirArg(p) {
+			root, err := projectRoot(p, home)
+			if err != nil {
+				return config{}, err
+			}
+			cfg.dirs = append(cfg.dirs, root)
+			continue
+		}
 		r, err := scan.ParsePortRange(p)
 		if err != nil {
 			return config{}, err
@@ -174,8 +207,19 @@ func (c *config) setFlag(arg string) error {
 	return nil
 }
 
+// scoped reports whether ports or directories limit what peek looks at.
+func (c config) scoped() bool {
+	return len(c.ranges) > 0 || len(c.dirs) > 0
+}
+
 func (c config) validate() error {
 	switch {
+	case c.completion != "" && completionScripts[c.completion] == "":
+		return fmt.Errorf("unsupported shell %q: use bash, zsh or fish", c.completion)
+	case c.completion != "" && (c.interactive || c.json || c.force || c.yes || c.free || c.timeout > 0):
+		return errors.New("completion doesn't take flags")
+	case c.wait && len(c.dirs) > 0:
+		return errors.New("wait takes ports, not directories")
 	case c.wait && (c.interactive || c.json || c.force || c.yes):
 		return errors.New("wait can't be combined with --interactive, --json, --force or --yes")
 	case !c.wait && c.free:

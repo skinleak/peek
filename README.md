@@ -16,12 +16,14 @@
 ## Features
 
 - **One command, no flags to remember:** `peek` lists everything that's listening.
+- **Knows which project a server belongs to:** `peek .` shows what's running from the repository you're in, and `peek kill .` stops all of it. No more hunting for the dev server you started in a terminal you already closed.
 - **Answers "who's on port 3000?"** with the process, PID, bind address, working directory and uptime. For interpreters it also names the script, so you see `node (vite)` or `python3 (manage.py)` instead of a column of `node`s.
 - **Interactive mode:** `peek -i` opens a live view that refreshes every second. Pick a row and press `x` to stop it.
 - **Frees a port safely:** `peek kill 3000` asks first, sends SIGTERM and checks that the process actually exited. Plain `peek kill` lets you pick from a list.
 - **Knows about Docker:** ports published by containers show the container name, and `peek kill` stops the container instead of breaking Docker's proxy.
 - **Shows exposure at a glance:** binds reachable from other machines (`0.0.0.0`, `::`) are highlighted differently from local-only ones (`127.0.0.1`, `::1`).
 - **Scriptable:** `--json` output, meaningful exit codes, and `peek wait` to block until a port is up (or free).
+- **Tab completion** for bash, zsh and fish that completes the ports listening right now, labelled with their process.
 - **Tiny and instant:** a single static binary for Linux and macOS, with no config files and no runtime dependencies.
 
 ## Install
@@ -53,12 +55,15 @@ peek                    # everything listening
 peek 3000               # who's on port 3000
 peek 3000-3999          # a port range
 peek 22 8000-8100       # several ports and ranges
+peek .                  # what's running from the project you're in
+peek ~/code/api 3000    # ...or from another project, on port 3000
 
 peek kill 3000          # stop the process on port 3000 (asks for confirmation)
 peek kill 3000 --yes    # don't ask
 peek kill 3000 --force  # send SIGKILL instead of SIGTERM
 peek kill               # pick processes to stop from a list
 peek kill 3000-3999     # pick among the processes in a range
+peek kill .             # stop what's running from this project
 
 peek -i                 # live view: browse ports and stop processes
 peek -i 3000-3999       # live view of a port range
@@ -67,6 +72,7 @@ peek wait 5432          # wait until something listens on port 5432
 peek wait 5432 -t 30s   # ...but give up after 30 seconds
 peek wait 3000 --free   # wait until port 3000 is free
 
+peek completion zsh     # print a shell completion script (bash, zsh, fish)
 peek --json             # machine-readable output
 peek --version
 peek --help
@@ -88,6 +94,25 @@ Flags can go before or after the ports, so `peek kill 3000 -f -y` works too.
 A process listening on the same port on several addresses (such as `127.0.0.1` and `::1`) gets one row listing all of them. A socket shared by several processes (for example a pre-forking web server) shows one row per process.
 
 Colors adapt to light and dark terminals. They're switched off automatically when output isn't a terminal or when [`NO_COLOR`](https://no-color.org) is set.
+
+### Projects
+
+Give peek a directory instead of a port and it shows the processes running from that project:
+
+```sh
+$ cd ~/code/webapp/apps/web
+$ peek .
+ PORT  PROCESS               PID  ADDRESS    CWD                     UPTIME
+ 3000  node (next)         48213  127.0.0.1  ~/code/webapp/apps/web  2h14m
+ 4000  node (server.js)    48302  127.0.0.1  ~/code/webapp/apps/api  2h13m
+ 5432  webapp-db (docker)      -  0.0.0.0    ~/code/webapp           -
+```
+
+A directory stands for its project: the git repository it's in, or just that directory outside a repository. peek then matches every process whose working directory is inside it. A git repository in your home directory (often dotfiles) doesn't count as a project, so it doesn't pull everything in.
+
+Containers started by Docker Compose belong to the directory Compose ran in, so `peek .` lists the project's database alongside its dev servers.
+
+Any argument that is `.`, `..` or `~`, or that contains a `/`, is a directory, such as `./api` or `~/code/webapp`. Directories work everywhere ports do, except `peek wait`: `peek -i .` watches the project live, and `peek kill .` stops what's running from it, with a list to pick from in a terminal if there's more than one. Together, ports and directories narrow each other down: `peek . 3000-3999` shows the project's processes on those ports.
 
 ### Interactive mode
 
@@ -140,13 +165,27 @@ Without a terminal, for example in a script, nothing changes: `peek kill 3000-39
 When a port is published by a Docker container, `peek` shows the container name instead of `docker-proxy`:
 
 ```
- PORT  PROCESS             PID  ADDRESS  CWD  UPTIME
- 5432  webapp-db (docker)    -  0.0.0.0  -    -
+ PORT  PROCESS             PID  ADDRESS  CWD            UPTIME
+ 5432  webapp-db (docker)    -  0.0.0.0  ~/code/webapp  -
 ```
+
+The CWD of a container started by Docker Compose is the directory Compose ran in.
 
 `peek kill 5432` then stops the container through the Docker API (`docker stop`, or `docker kill` with `--force`) rather than killing the proxy process, which would free the port but leave Docker in a broken state.
 
 This needs access to the Docker socket (on Linux, being in the `docker` group). It works with `/var/run/docker.sock`, Docker Desktop, rootless Docker and `DOCKER_HOST=unix://...`. If Docker isn't available, `peek` works as usual.
+
+### Shell completion
+
+peek completes subcommands, flags, directories, and the ports that are listening right now, labelled with what holds them (in zsh and fish). If you installed peek with Homebrew, completion is already set up (as long as your shell loads Homebrew's completions). Otherwise, add one line to your shell's startup file:
+
+```sh
+source <(peek completion bash)    # ~/.bashrc
+source <(peek completion zsh)     # ~/.zshrc, after compinit
+peek completion fish | source     # ~/.config/fish/config.fish
+```
+
+Or save the script where your shell looks for completions, for example `peek completion fish > ~/.config/fish/completions/peek.fish`. The release archives also include the scripts, in `completions/`.
 
 ### Seeing other users' processes
 
@@ -175,7 +214,7 @@ $ peek 3000 --json
 ]
 ```
 
-`connections` is the number of established connections to the port that peek can see, which on macOS means connections held by your own processes unless you run it with sudo. JSON has one entry per socket, so a process listening on both `127.0.0.1` and `::1` appears twice. Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`. When nothing matches, the output is `[]`.
+`connections` is the number of established connections to the port that peek can see, which on macOS means connections held by your own processes unless you run it with sudo. JSON has one entry per socket, so a process listening on both `127.0.0.1` and `::1` appears twice. Fields that couldn't be read (such as `pid` for another user's process) are left out. Ports published by Docker containers also have `container` and `container_id`, and their `cwd` is the Docker Compose project directory, if any. When nothing matches, the output is `[]`.
 
 ### Waiting for a port
 
@@ -195,8 +234,8 @@ In a terminal, peek shows a spinner while it waits. When it's done, it says what
 | Code | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | 0    | Success                                                                                   |
-| 1    | Nothing is listening on the requested port(s), the kill was declined, `peek wait` timed out, or something failed |
-| 2    | Usage error, such as an invalid port or unknown flag                                      |
+| 1    | Nothing is listening on the requested port(s) or in the requested project, the kill was declined, `peek wait` timed out, or something failed |
+| 2    | Usage error, such as an invalid port, missing directory or unknown flag                   |
 | 130  | Interrupted with Ctrl+C                                                                   |
 
 This makes `peek` handy in scripts:
